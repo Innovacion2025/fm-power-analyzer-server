@@ -58,16 +58,47 @@ async function probarPostgres() {
   }
 }
 
+async function crearTablaSiNoExiste() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS power_readings (
+        id BIGSERIAL PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        voltage_an NUMERIC(10,3),
+        voltage_bn NUMERIC(10,3),
+        voltage_cn NUMERIC(10,3),
+        current_a NUMERIC(10,3),
+        current_b NUMERIC(10,3),
+        current_c NUMERIC(10,3),
+        frequency NUMERIC(10,3),
+        power_total NUMERIC(12,3),
+        energy_total NUMERIC(12,3),
+        raw_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    console.log("Tabla power_readings lista");
+  } catch (error) {
+    console.error("Error creando tabla:", error.message);
+  }
+}
+
 RED.init(server, settings);
 
 // Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
-// Endpoints HTTP públicos
+// Endpoints HTTP publicos
 app.use("/", RED.httpNode);
 
-probarPostgres();
-RED.start();
+async function iniciar() {
+  await probarPostgres();
+  await crearTablaSiNoExiste();
+  RED.start();
+}
+
+iniciar();
 
 const PORT = process.env.PORT || 1880;
 server.listen(PORT, () => {
