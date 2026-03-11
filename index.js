@@ -34,21 +34,25 @@ const settings = {
   httpAdminRoot: "/admin",
   httpNodeRoot: "/",
   userDir: "/opt/render/project/src/.nodered",
-  functionGlobalContext: {}
+  functionGlobalContext: {},
+
+  httpNodeCors: {
+    origin: "*",
+    methods: "GET,PUT,POST,DELETE,OPTIONS",
+    allowedHeaders: "Content-Type, Authorization"
+  }
 };
 
 RED.init(server, settings);
 
-// Protege solo el editor
+// Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
-// Deja públicos los endpoints HTTP como /analyzer
+// Endpoints HTTP públicos
 app.use("/", RED.httpNode);
 
-// Iniciar runtime de Node-RED
 RED.start();
 
-// Escuchar solo una vez
 const PORT = process.env.PORT || 1880;
 server.listen(PORT, () => {
   console.log("Node-RED corriendo en puerto " + PORT);
