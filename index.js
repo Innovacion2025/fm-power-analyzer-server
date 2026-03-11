@@ -1,6 +1,7 @@
 const http = require("http");
 const express = require("express");
 const RED = require("node-red");
+const { Pool } = require("pg");
 
 const app = express();
 const server = http.createServer(app);
@@ -43,6 +44,20 @@ const settings = {
   }
 };
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
+
+async function probarPostgres() {
+  try {
+    const result = await pool.query("SELECT NOW() as fecha");
+    console.log("PostgreSQL conectado OK:", result.rows[0].fecha);
+  } catch (error) {
+    console.error("Error conectando a PostgreSQL:", error.message);
+  }
+}
+
 RED.init(server, settings);
 
 // Editor protegido
@@ -51,6 +66,7 @@ app.use("/admin", basicAuth, RED.httpAdmin);
 // Endpoints HTTP públicos
 app.use("/", RED.httpNode);
 
+probarPostgres();
 RED.start();
 
 const PORT = process.env.PORT || 1880;
