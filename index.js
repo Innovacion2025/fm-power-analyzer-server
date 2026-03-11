@@ -6,8 +6,8 @@ const app = express();
 const server = http.createServer(app);
 
 // ====== CREDENCIALES DEL EDITOR ======
-const ADMIN_USER = "FM INNOVACIÓN";
-const ADMIN_PASS = "mateolaines2026";
+const ADMIN_USER = "innovacion";
+const ADMIN_PASS = "mateolaines2025";
 
 // ====== BASIC AUTH SOLO PARA EL EDITOR ======
 function basicAuth(req, res, next) {
@@ -31,7 +31,7 @@ function basicAuth(req, res, next) {
 }
 
 const settings = {
-  httpAdminRoot: "/",
+  httpAdminRoot: "/admin",
   httpNodeRoot: "/",
   userDir: "/opt/render/project/src/.nodered",
   functionGlobalContext: {}
@@ -39,13 +39,20 @@ const settings = {
 
 RED.init(server, settings);
 
-// Protege SOLO el editor/admin
+// Editor protegido en /admin
 app.use(settings.httpAdminRoot, basicAuth, RED.httpAdmin);
 
-// Deja publicos los endpoints HTTP, como /analyzer
+// Endpoints HTTP públicos, como /analyzer
 app.use(settings.httpNodeRoot, RED.httpNode);
 
 const PORT = process.env.PORT || 1880;
+
+server.listen(PORT, () => {
+  console.log("Node-RED corriendo en puerto " + PORT);
+  console.log("Editor en /admin");
+});
+
+RED.start();
 
 server.listen(PORT, () => {
   console.log("Node-RED corriendo en puerto " + PORT);
