@@ -1,0 +1,13 @@
+{
+  "name": "fm-power-analyzer-server",
+  "version": "1.0.0",
+  "description": "FM POWER ANALYZER SERVER",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "node-red": "^4.0.9"
+  }
+}
