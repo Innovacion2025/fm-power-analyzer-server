@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
-    "node-red": "^4.0.9"
+    "node-red": "^4.0.9",
+    "pg": "^8.11.5"
   }
 }
