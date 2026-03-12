@@ -44,6 +44,9 @@ const settings = {
   }
 };
 
+app.use(express.json());
+
+// ====== CONEXIÓN POSTGRES ======
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -84,16 +87,16 @@ async function crearTablaSiNoExiste() {
   }
 }
 
+// ====== NODE RED ======
 RED.init(server, settings);
 
 // Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
-// Endpoints HTTP publicos
+// Endpoints HTTP públicos de Node-RED
 app.use("/", RED.httpNode);
 
-app.use(express.json());
-
+// ====== ENDPOINT GUARDAR LECTURA ======
 app.post("/api/save-reading", async (req, res) => {
   try {
     const data = req.body;
@@ -153,6 +156,59 @@ app.post("/api/save-reading", async (req, res) => {
   }
 });
 
+// ====== ENDPOINT HISTÓRICO PARA CURVAS ======
+app.get("/api/history", async (req, res) => {
+  try {
+    const { device_id, from, to } = req.query;
+
+    if (!device_id) {
+      return res.status(400).json({
+        ok: false,
+        error: "Falta device_id"
+      });
+    }
+
+    let sql = `
+      SELECT
+        id,
+        device_id,
+        voltage_an,
+        current_a,
+        frequency,
+        power_total,
+        energy_total,
+        created_at
+      FROM power_readings
+      WHERE device_id = $1
+    `;
+
+    const values = [device_id];
+
+    if (from && to) {
+      sql += ` AND created_at >= $2 AND created_at < $3::date + INTERVAL '1 day'`;
+      values.push(from, to);
+    }
+
+    sql += ` ORDER BY created_at ASC`;
+
+    const result = await pool.query(sql, values);
+
+    res.json({
+      ok: true,
+      device_id,
+      total: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error("Error consultando histórico:", error.message);
+    res.status(500).json({
+      ok: false,
+      error: "Error consultando histórico"
+    });
+  }
+});
+
+// ====== INICIAR SERVIDOR ======
 async function iniciar() {
   await probarPostgres();
   await crearTablaSiNoExiste();
