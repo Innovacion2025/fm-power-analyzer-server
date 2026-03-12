@@ -6,6 +6,8 @@ const { Pool } = require("pg");
 const app = express();
 const server = http.createServer(app);
 
+app.use(express.json());
+
 // ====== CREDENCIALES DEL EDITOR ======
 const ADMIN_USER = "fmadmin";
 const ADMIN_PASS = "ClaveTemporal123!";
@@ -31,12 +33,12 @@ function basicAuth(req, res, next) {
   return res.status(401).send("Credenciales invalidas");
 }
 
+// ====== CONFIG NODE-RED ======
 const settings = {
   httpAdminRoot: "/admin",
   httpNodeRoot: "/",
   userDir: "/opt/render/project/src/.nodered",
   functionGlobalContext: {},
-
   httpNodeCors: {
     origin: "*",
     methods: "GET,PUT,POST,DELETE,OPTIONS",
@@ -44,9 +46,7 @@ const settings = {
   }
 };
 
-app.use(express.json());
-
-// ====== CONEXIÓN POSTGRES ======
+// ====== POSTGRES ======
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -87,16 +87,15 @@ async function crearTablaSiNoExiste() {
   }
 }
 
-// ====== NODE RED ======
+// ====== INICIALIZAR NODE-RED ======
 RED.init(server, settings);
 
 // Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
-// Endpoints HTTP públicos de Node-RED
-app.use("/", RED.httpNode);
-
-// ====== ENDPOINT GUARDAR LECTURA ======
+// ============================================================
+// API: GUARDAR LECTURA
+// ============================================================
 app.post("/api/save-reading", async (req, res) => {
   try {
     const data = req.body;
@@ -156,7 +155,49 @@ app.post("/api/save-reading", async (req, res) => {
   }
 });
 
-// ====== ENDPOINT HISTÓRICO PARA CURVAS ======
+// ============================================================
+// API: ÚLTIMA LECTURA
+// ============================================================
+app.get("/api/device/:device_id", async (req, res) => {
+  try {
+    const { device_id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT raw_payload, created_at
+      FROM power_readings
+      WHERE device_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [device_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        ok: false,
+        error: "No se encontraron datos del dispositivo"
+      });
+    }
+
+    res.json({
+      ok: true,
+      device_id,
+      data: result.rows[0].raw_payload,
+      created_at: result.rows[0].created_at
+    });
+  } catch (error) {
+    console.error("Error consultando device:", error.message);
+    res.status(500).json({
+      ok: false,
+      error: "Error consultando device"
+    });
+  }
+});
+
+// ============================================================
+// API: HISTÓRICO PARA CURVAS
+// ============================================================
 app.get("/api/history", async (req, res) => {
   try {
     const { device_id, from, to } = req.query;
@@ -208,7 +249,10 @@ app.get("/api/history", async (req, res) => {
   }
 });
 
-// ====== INICIAR SERVIDOR ======
+// ====== ENDPOINTS HTTP DE NODE-RED AL FINAL ======
+app.use("/", RED.httpNode);
+
+// ====== INICIAR ======
 async function iniciar() {
   await probarPostgres();
   await crearTablaSiNoExiste();
