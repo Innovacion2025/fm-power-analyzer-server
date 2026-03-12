@@ -92,6 +92,67 @@ app.use("/admin", basicAuth, RED.httpAdmin);
 // Endpoints HTTP publicos
 app.use("/", RED.httpNode);
 
+app.use(express.json());
+
+app.post("/api/save-reading", async (req, res) => {
+  try {
+    const data = req.body;
+
+    if (!data.device_id) {
+      return res.status(400).json({
+        ok: false,
+        error: "Falta device_id"
+      });
+    }
+
+    const sql = `
+      INSERT INTO power_readings (
+        device_id,
+        voltage_an,
+        voltage_bn,
+        voltage_cn,
+        current_a,
+        current_b,
+        current_c,
+        frequency,
+        power_total,
+        energy_total,
+        raw_payload
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      RETURNING id, created_at
+    `;
+
+    const values = [
+      data.device_id,
+      data.voltage_an ?? null,
+      data.voltage_bn ?? null,
+      data.voltage_cn ?? null,
+      data.current_a ?? null,
+      data.current_b ?? null,
+      data.current_c ?? null,
+      data.frequency ?? null,
+      data.power_total ?? null,
+      data.energy_total ?? null,
+      data
+    ];
+
+    const result = await pool.query(sql, values);
+
+    res.json({
+      ok: true,
+      id: result.rows[0].id,
+      created_at: result.rows[0].created_at
+    });
+  } catch (error) {
+    console.error("Error guardando lectura:", error.message);
+    res.status(500).json({
+      ok: false,
+      error: "Error guardando lectura"
+    });
+  }
+});
+
 async function iniciar() {
   await probarPostgres();
   await crearTablaSiNoExiste();
