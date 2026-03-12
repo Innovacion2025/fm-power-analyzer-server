@@ -1,13 +1,24 @@
+// ============================================================
+// BLOQUE 1: IMPORTACIONES
+// ============================================================
 const http = require("http");
 const express = require("express");
 const RED = require("node-red");
 const { Pool } = require("pg");
 
+
+// ============================================================
+// BLOQUE 2: APP Y SERVIDOR BASE
+// ============================================================
 const app = express();
 const server = http.createServer(app);
 
 app.use(express.json());
 
+
+// ============================================================
+// BLOQUE 3: CORS GLOBAL PARA API Y DASHBOARD
+// ============================================================
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
@@ -20,11 +31,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// ====== CREDENCIALES DEL EDITOR ======
+
+// ============================================================
+// BLOQUE 4: CREDENCIALES DEL EDITOR NODE-RED
+// ============================================================
 const ADMIN_USER = "fmadmin";
 const ADMIN_PASS = "ClaveTemporal123!";
 
-// ====== BASIC AUTH SOLO PARA EL EDITOR ======
+
+// ============================================================
+// BLOQUE 5: BASIC AUTH SOLO PARA /admin
+// ============================================================
 function basicAuth(req, res, next) {
   const auth = req.headers.authorization || "";
 
@@ -45,7 +62,10 @@ function basicAuth(req, res, next) {
   return res.status(401).send("Credenciales invalidas");
 }
 
-// ====== CONFIG NODE-RED ======
+
+// ============================================================
+// BLOQUE 6: CONFIGURACION DE NODE-RED
+// ============================================================
 const settings = {
   httpAdminRoot: "/admin",
   httpNodeRoot: "/",
@@ -58,7 +78,10 @@ const settings = {
   }
 };
 
-// ====== POSTGRES ======
+
+// ============================================================
+// BLOQUE 7: CONEXION A POSTGRESQL
+// ============================================================
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
@@ -73,6 +96,10 @@ async function probarPostgres() {
   }
 }
 
+
+// ============================================================
+// BLOQUE 8: CREACION DE TABLA SI NO EXISTE
+// ============================================================
 async function crearTablaSiNoExiste() {
   try {
     await pool.query(`
@@ -99,14 +126,18 @@ async function crearTablaSiNoExiste() {
   }
 }
 
-// ====== INICIALIZAR NODE-RED ======
+
+// ============================================================
+// BLOQUE 9: INICIALIZACION DE NODE-RED
+// ============================================================
 RED.init(server, settings);
 
 // Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
+
 // ============================================================
-// API: GUARDAR LECTURA
+// BLOQUE 10: API - GUARDAR LECTURA EN BASE DE DATOS
 // ============================================================
 app.post("/api/save-reading", async (req, res) => {
   try {
@@ -145,9 +176,9 @@ app.post("/api/save-reading", async (req, res) => {
       data.current_a ?? null,
       data.current_b ?? null,
       data.current_c ?? null,
-      data.frequency ?? null,
-      data.power_total ?? null,
-      data.energy_total ?? null,
+      data.frequency ?? data.frecuencia ?? null,
+      data.power_total ?? data.ptot ?? null,
+      data.energy_total ?? data.edel ?? null,
       data
     ];
 
@@ -167,8 +198,9 @@ app.post("/api/save-reading", async (req, res) => {
   }
 });
 
+
 // ============================================================
-// API: ÚLTIMA LECTURA
+// BLOQUE 11: API - ULTIMA LECTURA DE UN DISPOSITIVO
 // ============================================================
 app.get("/api/device/:device_id", async (req, res) => {
   try {
@@ -207,8 +239,11 @@ app.get("/api/device/:device_id", async (req, res) => {
   }
 });
 
+
 // ============================================================
-// API: HISTÓRICO PARA CURVAS
+// BLOQUE 12: API - HISTORICO PARA GRAFICAS
+// NOTA: AQUI SE INCLUYE raw_payload PARA PODER LEER
+// ptot, qtot y stot DESDE EL DASHBOARD
 // ============================================================
 app.get("/api/history", async (req, res) => {
   try {
@@ -230,6 +265,7 @@ app.get("/api/history", async (req, res) => {
         frequency,
         power_total,
         energy_total,
+        raw_payload,
         created_at
       FROM power_readings
       WHERE device_id = $1
@@ -261,10 +297,17 @@ app.get("/api/history", async (req, res) => {
   }
 });
 
-// ====== ENDPOINTS HTTP DE NODE-RED AL FINAL ======
+
+// ============================================================
+// BLOQUE 13: ENDPOINTS DE NODE-RED
+// IMPORTANTE: VA AL FINAL PARA NO INTERFERIR CON /api/*
+// ============================================================
 app.use("/", RED.httpNode);
 
-// ====== INICIAR ======
+
+// ============================================================
+// BLOQUE 14: INICIO DEL SERVIDOR Y NODE-RED
+// ============================================================
 async function iniciar() {
   await probarPostgres();
   await crearTablaSiNoExiste();
