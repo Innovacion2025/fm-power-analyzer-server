@@ -87,6 +87,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false }
 });
 
+// ============================================================
+// BLOQUE 7A: MEMORIA TEMPORAL DE ULTIMA LECTURA POR EQUIPO
+// ============================================================
+const latestReadings = {};
+
 async function probarPostgres() {
   try {
     const result = await pool.query("SELECT NOW() as fecha");
@@ -150,6 +155,12 @@ app.post("/api/save-reading", async (req, res) => {
       });
     }
 
+// guardar ultimo dato en memoria para tiempo real
+latestReadings[data.device_id] = {
+  data,
+  updated_at: new Date().toISOString()
+};
+    
     const sql = `
       INSERT INTO power_readings (
         device_id,
@@ -198,47 +209,37 @@ app.post("/api/save-reading", async (req, res) => {
   }
 });
 
-
 // ============================================================
-// BLOQUE 11: API - ULTIMA LECTURA DE UN DISPOSITIVO
+// BLOQUE 11: API - ULTIMA LECTURA DE UN DISPOSITIVO (TIEMPO REAL)
+// LEE DESDE MEMORIA, NO DESDE POSTGRESQL
 // ============================================================
-app.get("/api/device/:device_id", async (req, res) => {
-  try {
-    const { device_id } = req.params;
-
-    const result = await pool.query(
-      `
-      SELECT raw_payload, created_at
-      FROM power_readings
-      WHERE device_id = $1
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      [device_id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.json({
+  app.get("/api/device/:device_id", async (req, res) => {
+    try {
+      const { device_id } = req.params;
+  
+      const latest = latestReadings[device_id];
+  
+      if (!latest) {
+        return res.json({
+          ok: false,
+          error: "No se encontraron datos del dispositivo"
+        });
+      }
+  
+      res.json({
+        ok: true,
+        device_id,
+        data: latest.data,
+        created_at: latest.updated_at
+      });
+    } catch (error) {
+      console.error("Error consultando device:", error.message);
+      res.status(500).json({
         ok: false,
-        error: "No se encontraron datos del dispositivo"
+        error: "Error consultando device"
       });
     }
-
-    res.json({
-      ok: true,
-      device_id,
-      data: result.rows[0].raw_payload,
-      created_at: result.rows[0].created_at
-    });
-  } catch (error) {
-    console.error("Error consultando device:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: "Error consultando device"
-    });
-  }
-});
-
+  });
 
 // ============================================================
 // BLOQUE 12: API - HISTORICO PARA GRAFICAS
