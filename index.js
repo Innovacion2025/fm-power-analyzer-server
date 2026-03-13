@@ -140,74 +140,106 @@ RED.init(server, settings);
 // Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
-
 // ============================================================
-// BLOQUE 10: API - GUARDAR LECTURA EN BASE DE DATOS
+// BLOQUE 10: API - GUARDAR LECTURA
+// SIEMPRE ACTUALIZA MEMORIA PARA TIEMPO REAL
+// SOLO GUARDA EN POSTGRESQL CADA X SEGUNDOS
 // ============================================================
-app.post("/api/save-reading", async (req, res) => {
-  try {
-    const data = req.body;
-
-    if (!data.device_id) {
-      return res.status(400).json({
+  app.post("/api/save-reading", async (req, res) => {
+    try {
+      const data = req.body;
+  
+      if (!data.device_id) {
+        return res.status(400).json({
+          ok: false,
+          error: "Falta device_id"
+        });
+      }
+  
+      // ------------------------------------------------------------
+      // 1. SIEMPRE guardar último dato en memoria (tiempo real)
+      // ------------------------------------------------------------
+      latestReadings[data.device_id] = {
+        data,
+        updated_at: new Date().toISOString()
+      };
+  
+      // ------------------------------------------------------------
+      // 2. Control de frecuencia de guardado a PostgreSQL
+      // ------------------------------------------------------------
+      const SAVE_INTERVAL = 10000; // 10 segundos
+  
+      if (!global.lastSaveTimes) {
+        global.lastSaveTimes = {};
+      }
+  
+      const now = Date.now();
+      const lastSave = global.lastSaveTimes[data.device_id] || 0;
+  
+      // Si todavía no toca guardar en DB, responder OK pero sin insertar
+      if (now - lastSave < SAVE_INTERVAL) {
+        return res.json({
+          ok: true,
+          saved_to_db: false,
+          message: "Dato recibido, actualizado en memoria"
+        });
+      }
+  
+      // Actualizar marca de tiempo del último guardado
+      global.lastSaveTimes[data.device_id] = now;
+  
+      // ------------------------------------------------------------
+      // 3. Guardar en PostgreSQL
+      // ------------------------------------------------------------
+      const sql = `
+        INSERT INTO power_readings (
+          device_id,
+          voltage_an,
+          voltage_bn,
+          voltage_cn,
+          current_a,
+          current_b,
+          current_c,
+          frequency,
+          power_total,
+          energy_total,
+          raw_payload
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        RETURNING id, created_at
+      `;
+  
+      const values = [
+        data.device_id,
+        data.voltage_an ?? null,
+        data.voltage_bn ?? null,
+        data.voltage_cn ?? null,
+        data.current_a ?? null,
+        data.current_b ?? null,
+        data.current_c ?? null,
+        data.frequency ?? data.frecuencia ?? null,
+        data.power_total ?? data.ptot ?? null,
+        data.energy_total ?? data.edel ?? null,
+        data
+      ];
+  
+      const result = await pool.query(sql, values);
+  
+      return res.json({
+        ok: true,
+        saved_to_db: true,
+        id: result.rows[0].id,
+        created_at: result.rows[0].created_at
+      });
+  
+    } catch (error) {
+      console.error("Error guardando lectura:", error.message);
+      return res.status(500).json({
         ok: false,
-        error: "Falta device_id"
+        error: "Error guardando lectura"
       });
     }
-
-// guardar ultimo dato en memoria para tiempo real
-latestReadings[data.device_id] = {
-  data,
-  updated_at: new Date().toISOString()
-};
-    
-    const sql = `
-      INSERT INTO power_readings (
-        device_id,
-        voltage_an,
-        voltage_bn,
-        voltage_cn,
-        current_a,
-        current_b,
-        current_c,
-        frequency,
-        power_total,
-        energy_total,
-        raw_payload
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-      RETURNING id, created_at
-    `;
-
-    const values = [
-      data.device_id,
-      data.voltage_an ?? null,
-      data.voltage_bn ?? null,
-      data.voltage_cn ?? null,
-      data.current_a ?? null,
-      data.current_b ?? null,
-      data.current_c ?? null,
-      data.frequency ?? data.frecuencia ?? null,
-      data.power_total ?? data.ptot ?? null,
-      data.energy_total ?? data.edel ?? null,
-      data
-    ];
-
-    const result = await pool.query(sql, values);
-
-    res.json({
-      ok: true,
-      id: result.rows[0].id,
-      created_at: result.rows[0].created_at
-    });
-  } catch (error) {
-    console.error("Error guardando lectura:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: "Error guardando lectura"
-    });
-  }
-});
+  });
 
 // ============================================================
 // BLOQUE 11: API - ULTIMA LECTURA DE UN DISPOSITIVO (TIEMPO REAL)
