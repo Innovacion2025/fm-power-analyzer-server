@@ -275,154 +275,160 @@ app.use("/admin", basicAuth, RED.httpAdmin);
 
 // ============================================================
 // BLOQUE 12: API - HISTORICO PARA GRAFICAS
-// NOTA: AQUI SE INCLUYE raw_payload PARA PODER LEER
-// ptot, qtot y stot DESDE EL DASHBOARD
+// FILTRA POR FECHAS EN ZONA HORARIA DE GUAYAQUIL
 // ============================================================
-app.get("/api/history", async (req, res) => {
-  try {
-    const { device_id, from, to } = req.query;
-
-    if (!device_id) {
-      return res.status(400).json({
+  app.get("/api/history", async (req, res) => {
+    try {
+      const { device_id, from, to } = req.query;
+  
+      if (!device_id) {
+        return res.status(400).json({
+          ok: false,
+          error: "Falta device_id"
+        });
+      }
+  
+      let sql = `
+        SELECT
+          id,
+          device_id,
+          voltage_an,
+          current_a,
+          frequency,
+          power_total,
+          energy_total,
+          raw_payload,
+          created_at
+        FROM power_readings
+        WHERE device_id = $1
+      `;
+  
+      const values = [device_id];
+  
+      if (from && to) {
+        sql += `
+          AND created_at >= (($2::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND created_at < (((($3::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        `;
+        values.push(from, to);
+      }
+  
+      sql += ` ORDER BY created_at ASC`;
+  
+      const result = await pool.query(sql, values);
+  
+      res.json({
+        ok: true,
+        device_id,
+        total: result.rows.length,
+        data: result.rows
+      });
+    } catch (error) {
+      console.error("Error consultando histórico:", error.message);
+      res.status(500).json({
         ok: false,
-        error: "Falta device_id"
+        error: "Error consultando histórico"
       });
     }
-
-    let sql = `
-      SELECT
-        id,
-        device_id,
-        voltage_an,
-        current_a,
-        frequency,
-        power_total,
-        energy_total,
-        raw_payload,
-        created_at
-      FROM power_readings
-      WHERE device_id = $1
-    `;
-
-    const values = [device_id];
-
-    if (from && to) {
-      sql += ` AND created_at >= $2 AND created_at < $3::date + INTERVAL '1 day'`;
-      values.push(from, to);
-    }
-
-    sql += ` ORDER BY created_at ASC`;
-
-    const result = await pool.query(sql, values);
-
-    res.json({
-      ok: true,
-      device_id,
-      total: result.rows.length,
-      data: result.rows
-    });
-  } catch (error) {
-    console.error("Error consultando histórico:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: "Error consultando histórico"
-    });
-  }
-});
-
+  });
 
 // ============================================================
 // BLOQUE 12A: API - EXPORTAR HISTORICO EN CSV POR RANGO
+// FILTRA POR FECHAS EN ZONA HORARIA DE GUAYAQUIL
 // ============================================================
-app.get("/api/history/export", async (req, res) => {
-  try {
-    const { device_id, from, to } = req.query;
-
-    if (!device_id) {
-      return res.status(400).json({
+  app.get("/api/history/export", async (req, res) => {
+    try {
+      const { device_id, from, to } = req.query;
+  
+      if (!device_id) {
+        return res.status(400).json({
+          ok: false,
+          error: "Falta device_id"
+        });
+      }
+  
+      if (!from || !to) {
+        return res.status(400).json({
+          ok: false,
+          error: "Faltan fechas from y to"
+        });
+      }
+  
+      const sql = `
+        SELECT
+          created_at,
+          device_id,
+          voltage_an,
+          current_a,
+          frequency,
+          power_total,
+          energy_total,
+          raw_payload
+        FROM power_readings
+        WHERE device_id = $1
+          AND created_at >= (($2::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND created_at < (((($3::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        ORDER BY created_at ASC
+      `;
+  
+      const values = [device_id, from, to];
+      const result = await pool.query(sql, values);
+      const rows = result.rows;
+  
+      const headers = [
+        "created_at",
+        "device_id",
+        "voltage_an",
+        "current_a",
+        "frequency",
+        "ptot",
+        "qtot",
+        "stot",
+        "edel"
+      ];
+  
+      const csvLines = [headers.join(",")];
+  
+      for (const row of rows) {
+        const p = row.raw_payload || {};
+  
+        const rowValues = [
+          row.created_at
+            ? new Date(row.created_at).toLocaleString("es-EC", {
+                timeZone: "America/Guayaquil"
+              })
+            : "",
+          row.device_id ?? "",
+          row.voltage_an ?? "",
+          row.current_a ?? "",
+          row.frequency ?? "",
+          p.ptot ?? "",
+          p.qtot ?? "",
+          p.stot ?? "",
+          p.edel ?? ""
+        ].map(value => {
+          const text = String(value);
+          return `"${text.replace(/"/g, '""')}"`;
+        });
+  
+        csvLines.push(rowValues.join(","));
+      }
+  
+      const csvContent = "\uFEFF" + csvLines.join("\n");
+      const fileName = `${device_id}_${from}_to_${to}.csv`;
+  
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.send(csvContent);
+  
+    } catch (error) {
+      console.error("Error exportando CSV:", error.message);
+      res.status(500).json({
         ok: false,
-        error: "Falta device_id"
+        error: "Error exportando CSV"
       });
     }
-
-    if (!from || !to) {
-      return res.status(400).json({
-        ok: false,
-        error: "Faltan fechas from y to"
-      });
-    }
-
-    const sql = `
-      SELECT
-        created_at,
-        device_id,
-        voltage_an,
-        current_a,
-        frequency,
-        power_total,
-        energy_total,
-        raw_payload
-      FROM power_readings
-      WHERE device_id = $1
-        AND created_at >= $2
-        AND created_at < $3::date + INTERVAL '1 day'
-      ORDER BY created_at ASC
-    `;
-
-    const values = [device_id, from, to];
-    const result = await pool.query(sql, values);
-    const rows = result.rows;
-
-    const headers = [
-      "created_at",
-      "device_id",
-      "voltage_an",
-      "current_a",
-      "frequency",
-      "ptot",
-      "qtot",
-      "stot",
-      "edel"
-    ];
-
-    const csvLines = [headers.join(",")];
-
-    for (const row of rows) {
-      const p = row.raw_payload || {};
-
-      const rowValues = [
-        row.created_at? new Date(row.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" }): "",
-        row.device_id ?? "",
-        row.voltage_an ?? "",
-        row.current_a ?? "",
-        row.frequency ?? "",
-        p.ptot ?? "",
-        p.qtot ?? "",
-        p.stot ?? "",
-        p.edel ?? ""
-      ].map(value => {
-        const text = String(value);
-        return `"${text.replace(/"/g, '""')}"`;
-      });
-
-      csvLines.push(rowValues.join(","));
-    }
-
-    const csvContent = "\uFEFF" + csvLines.join("\n");
-    const fileName = `${device_id}_${from}_to_${to}.csv`;
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-    res.send(csvContent);
-
-  } catch (error) {
-    console.error("Error exportando CSV:", error.message);
-    res.status(500).json({
-      ok: false,
-      error: "Error exportando CSV"
-    });
-  }
-});
+  });
 
 // ============================================================
 // BLOQUE 13: ENDPOINTS DE NODE-RED
