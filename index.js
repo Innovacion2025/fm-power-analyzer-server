@@ -335,6 +335,7 @@ app.use("/admin", basicAuth, RED.httpAdmin);
 // ============================================================
 // BLOQUE 12A: API - EXPORTAR HISTORICO EN CSV POR RANGO
 // FILTRA POR FECHAS EN ZONA HORARIA DE GUAYAQUIL
+// ENVIA EL CSV POR PARTES PARA INICIAR LA DESCARGA MAS RAPIDO
 // ============================================================
   app.get("/api/history/export", async (req, res) => {
     try {
@@ -375,6 +376,15 @@ app.use("/admin", basicAuth, RED.httpAdmin);
       const result = await pool.query(sql, values);
       const rows = result.rows;
   
+      const fileName = `${device_id}_${from}_to_${to}.csv`;
+  
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+  
+      // BOM para Excel
+      res.write("\uFEFF");
+  
+      // Cabecera CSV
       const headers = [
         "created_at",
         "device_id",
@@ -387,7 +397,7 @@ app.use("/admin", basicAuth, RED.httpAdmin);
         "edel"
       ];
   
-      const csvLines = [headers.join(",")];
+      res.write(headers.join(",") + "\n");
   
       for (const row of rows) {
         const p = row.raw_payload || {};
@@ -411,15 +421,10 @@ app.use("/admin", basicAuth, RED.httpAdmin);
           return `"${text.replace(/"/g, '""')}"`;
         });
   
-        csvLines.push(rowValues.join(","));
+        res.write(rowValues.join(",") + "\n");
       }
   
-      const csvContent = "\uFEFF" + csvLines.join("\n");
-      const fileName = `${device_id}_${from}_to_${to}.csv`;
-  
-      res.setHeader("Content-Type", "text/csv; charset=utf-8");
-      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-      res.send(csvContent);
+      res.end();
   
     } catch (error) {
       console.error("Error exportando CSV:", error.message);
