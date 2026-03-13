@@ -358,7 +358,7 @@ app.get("/api/history/export", async (req, res) => {
       const p = row.raw_payload || {};
 
       const rowValues = [
-        row.created_at ? new Date(row.created_at).toISOString() : "",
+        row.created_at? new Date(row.created_at).toLocaleString("es-EC", { timeZone: "America/Guayaquil" }): "",
         row.device_id ?? "",
         row.voltage_an ?? "",
         row.current_a ?? "",
