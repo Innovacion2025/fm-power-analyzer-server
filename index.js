@@ -83,7 +83,6 @@ const pool = new Pool({
 
 // ============================================================
 // BLOQUE 7A: MEMORIA TEMPORAL DE ULTIMA LECTURA POR MEDIDOR
-// CLAVE = device_id + pm_slave
 // ============================================================
 const latestReadings = {};
 
@@ -109,7 +108,9 @@ async function crearTablasSiNoExisten() {
       CREATE TABLE IF NOT EXISTS power_meters (
         id BIGSERIAL PRIMARY KEY,
         device_id TEXT NOT NULL,
+        device_name TEXT,
         pm_slave INTEGER NOT NULL,
+        pm_name TEXT,
         model TEXT,
         fw TEXT,
         token TEXT,
@@ -124,7 +125,9 @@ async function crearTablasSiNoExisten() {
         id BIGSERIAL PRIMARY KEY,
 
         device_id TEXT NOT NULL,
+        device_name TEXT,
         pm_slave INTEGER NOT NULL,
+        pm_name TEXT,
 
         token TEXT,
         model TEXT,
@@ -189,7 +192,9 @@ async function crearTablasSiNoExisten() {
         id BIGSERIAL PRIMARY KEY,
 
         device_id TEXT NOT NULL,
+        device_name TEXT,
         pm_slave INTEGER NOT NULL,
+        pm_name TEXT,
 
         token TEXT,
         model TEXT,
@@ -280,15 +285,19 @@ async function upsertMeter(data) {
   const sql = `
     INSERT INTO power_meters (
       device_id,
+      device_name,
       pm_slave,
+      pm_name,
       model,
       fw,
       token,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
     ON CONFLICT (device_id, pm_slave)
     DO UPDATE SET
+      device_name = EXCLUDED.device_name,
+      pm_name = EXCLUDED.pm_name,
       model = EXCLUDED.model,
       fw = EXCLUDED.fw,
       token = EXCLUDED.token,
@@ -297,7 +306,9 @@ async function upsertMeter(data) {
 
   const values = [
     data.device_id,
+    data.device_name ?? null,
     data.pm_slave,
+    data.pm_name ?? null,
     data.model ?? null,
     data.fw ?? null,
     data.token ?? null
@@ -315,7 +326,9 @@ async function upsertLatest(data) {
   const sql = `
     INSERT INTO power_latest (
       device_id,
+      device_name,
       pm_slave,
+      pm_name,
       token,
       model,
       fw,
@@ -373,23 +386,25 @@ async function upsertLatest(data) {
       updated_at
     )
     VALUES (
-      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-      $11,$12,$13,
-      $14,$15,$16,$17,
-      $18,$19,$20,$21,
-      $22,$23,$24,$25,
-      $26,$27,$28,$29,
-      $30,$31,$32,$33,
-      $34,
-      $35,$36,$37,
-      $38,$39,$40,$41,
-      $42,$43,
-      $44,
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+      $13,$14,$15,
+      $16,$17,$18,$19,
+      $20,$21,$22,$23,
+      $24,$25,$26,$27,
+      $28,$29,$30,$31,
+      $32,$33,$34,$35,
+      $36,
+      $37,$38,$39,
+      $40,$41,$42,$43,
+      $44,$45,
+      $46,
       NOW(),
       NOW()
     )
     ON CONFLICT (device_id, pm_slave)
     DO UPDATE SET
+      device_name = EXCLUDED.device_name,
+      pm_name = EXCLUDED.pm_name,
       token = EXCLUDED.token,
       model = EXCLUDED.model,
       fw = EXCLUDED.fw,
@@ -449,7 +464,9 @@ async function upsertLatest(data) {
 
   const values = [
     data.device_id,
+    data.device_name ?? null,
     data.pm_slave,
+    data.pm_name ?? null,
     data.token ?? null,
     data.model ?? null,
     data.fw ?? null,
@@ -512,15 +529,10 @@ async function upsertLatest(data) {
 // BLOQUE 9: INICIALIZACION DE NODE-RED
 // ============================================================
 RED.init(server, settings);
-
-// Editor protegido
 app.use("/admin", basicAuth, RED.httpAdmin);
 
 // ============================================================
 // BLOQUE 10: API - GUARDAR LECTURA
-// SIEMPRE ACTUALIZA MEMORIA
-// SIEMPRE ACTUALIZA power_latest
-// SOLO GUARDA HISTORICO EN power_readings CADA X SEGUNDOS
 // ============================================================
 app.post("/api/save-reading", async (req, res) => {
   try {
@@ -528,54 +540,32 @@ app.post("/api/save-reading", async (req, res) => {
     const p = data.payload || {};
 
     if (!data.device_id) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta device_id"
-      });
+      return res.status(400).json({ ok: false, error: "Falta device_id" });
     }
 
     if (data.pm_slave === undefined || data.pm_slave === null) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta pm_slave"
-      });
+      return res.status(400).json({ ok: false, error: "Falta pm_slave" });
     }
 
     const pmSlave = Number(data.pm_slave);
 
     if (!Number.isInteger(pmSlave)) {
-      return res.status(400).json({
-        ok: false,
-        error: "pm_slave debe ser entero"
-      });
+      return res.status(400).json({ ok: false, error: "pm_slave debe ser entero" });
     }
 
     data.pm_slave = pmSlave;
 
     const meterKey = buildMeterKey(data.device_id, data.pm_slave);
 
-    // ------------------------------------------------------------
-    // 1. Guardar ultimo dato en memoria
-    // ------------------------------------------------------------
     latestReadings[meterKey] = {
       data,
       updated_at: new Date().toISOString()
     };
 
-    // ------------------------------------------------------------
-    // 2. Registrar el medidor logico
-    // ------------------------------------------------------------
     await upsertMeter(data);
-
-    // ------------------------------------------------------------
-    // 3. Actualizar ultimo valor en DB
-    // ------------------------------------------------------------
     await upsertLatest(data);
 
-    // ------------------------------------------------------------
-    // 4. Control de frecuencia de guardado historico
-    // ------------------------------------------------------------
-    const SAVE_INTERVAL = 10000; // 10 segundos
+    const SAVE_INTERVAL = 10000;
 
     if (!global.lastSaveTimes) {
       global.lastSaveTimes = {};
@@ -589,19 +579,22 @@ app.post("/api/save-reading", async (req, res) => {
         ok: true,
         saved_to_db: false,
         updated_latest: true,
+        device_id: data.device_id,
+        device_name: data.device_name ?? null,
+        pm_slave: data.pm_slave,
+        pm_name: data.pm_name ?? null,
         message: "Dato recibido, ultimo valor actualizado"
       });
     }
 
     global.lastSaveTimes[meterKey] = now;
 
-    // ------------------------------------------------------------
-    // 5. Guardar historico en PostgreSQL
-    // ------------------------------------------------------------
     const sql = `
       INSERT INTO power_readings (
         device_id,
+        device_name,
         pm_slave,
+        pm_name,
         token,
         model,
         fw,
@@ -657,25 +650,27 @@ app.post("/api/save-reading", async (req, res) => {
         raw_payload
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        $11,$12,$13,
-        $14,$15,$16,$17,
-        $18,$19,$20,$21,
-        $22,$23,$24,$25,
-        $26,$27,$28,$29,
-        $30,$31,$32,$33,
-        $34,
-        $35,$36,$37,
-        $38,$39,$40,$41,
-        $42,$43,
-        $44
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+        $13,$14,$15,
+        $16,$17,$18,$19,
+        $20,$21,$22,$23,
+        $24,$25,$26,$27,
+        $28,$29,$30,$31,
+        $32,$33,$34,$35,
+        $36,
+        $37,$38,$39,
+        $40,$41,$42,$43,
+        $44,$45,
+        $46
       )
       RETURNING id, created_at
     `;
 
     const values = [
       data.device_id,
+      data.device_name ?? null,
       data.pm_slave,
+      data.pm_name ?? null,
       data.token ?? null,
       data.model ?? null,
       data.fw ?? null,
@@ -740,7 +735,9 @@ app.post("/api/save-reading", async (req, res) => {
       id: result.rows[0].id,
       created_at: result.rows[0].created_at,
       device_id: data.device_id,
-      pm_slave: data.pm_slave
+      device_name: data.device_name ?? null,
+      pm_slave: data.pm_slave,
+      pm_name: data.pm_name ?? null
     });
 
   } catch (error) {
@@ -754,7 +751,6 @@ app.post("/api/save-reading", async (req, res) => {
 
 // ============================================================
 // BLOQUE 11: API - ULTIMA LECTURA DE UN PM EN TIEMPO REAL
-// USO: /api/device/FMPAN-0001?pm_slave=3
 // ============================================================
 app.get("/api/device/:device_id", async (req, res) => {
   try {
@@ -807,7 +803,9 @@ app.get("/api/meters/:device_id", async (req, res) => {
       `
       SELECT
         device_id,
+        device_name,
         pm_slave,
+        pm_name,
         model,
         fw,
         token,
@@ -837,7 +835,6 @@ app.get("/api/meters/:device_id", async (req, res) => {
 
 // ============================================================
 // BLOQUE 12: API - HISTORICO PARA GRAFICAS
-// AHORA FILTRA POR device_id + pm_slave
 // ============================================================
 app.get("/api/history", async (req, res) => {
   try {
@@ -845,24 +842,20 @@ app.get("/api/history", async (req, res) => {
     const pmSlave = Number(req.query.pm_slave);
 
     if (!device_id) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta device_id"
-      });
+      return res.status(400).json({ ok: false, error: "Falta device_id" });
     }
 
     if (!Number.isInteger(pmSlave)) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta pm_slave valido"
-      });
+      return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
     }
 
     let sql = `
       SELECT
         id,
         device_id,
+        device_name,
         pm_slave,
+        pm_name,
         token,
         model,
         fw,
@@ -954,7 +947,6 @@ app.get("/api/history", async (req, res) => {
 
 // ============================================================
 // BLOQUE 12A: API - EXPORTAR HISTORICO EN CSV POR RANGO
-// AHORA FILTRA POR device_id + pm_slave
 // ============================================================
 app.get("/api/history/export", async (req, res) => {
   try {
@@ -962,31 +954,24 @@ app.get("/api/history/export", async (req, res) => {
     const pmSlave = Number(req.query.pm_slave);
 
     if (!device_id) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta device_id"
-      });
+      return res.status(400).json({ ok: false, error: "Falta device_id" });
     }
 
     if (!Number.isInteger(pmSlave)) {
-      return res.status(400).json({
-        ok: false,
-        error: "Falta pm_slave valido"
-      });
+      return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
     }
 
     if (!from || !to) {
-      return res.status(400).json({
-        ok: false,
-        error: "Faltan fechas from y to"
-      });
+      return res.status(400).json({ ok: false, error: "Faltan fechas from y to" });
     }
 
     const sql = `
       SELECT
         created_at,
         device_id,
+        device_name,
         pm_slave,
+        pm_name,
 
         voltage_a,
         voltage_b,
@@ -1047,13 +1032,14 @@ app.get("/api/history/export", async (req, res) => {
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-
     res.write("\uFEFF");
 
     const headers = [
       "created_at",
       "device_id",
+      "device_name",
       "pm_slave",
+      "pm_name",
       "voltage_a",
       "voltage_b",
       "voltage_c",
@@ -1099,7 +1085,9 @@ app.get("/api/history/export", async (req, res) => {
             })
           : "",
         row.device_id ?? "",
+        row.device_name ?? "",
         row.pm_slave ?? "",
+        row.pm_name ?? "",
 
         row.voltage_a ?? "",
         row.voltage_b ?? "",
