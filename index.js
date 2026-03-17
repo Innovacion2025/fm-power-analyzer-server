@@ -851,19 +851,10 @@ app.get("/api/history", async (req, res) => {
 
     let sql = `
       SELECT
-        id,
         device_id,
         device_name,
         pm_slave,
         pm_name,
-        token,
-        model,
-        fw,
-        status,
-        uptime_ms,
-        ip,
-        rssi,
-        timestamp_ms,
 
         voltage_a,
         voltage_b,
@@ -937,10 +928,11 @@ app.get("/api/history", async (req, res) => {
       data: result.rows
     });
   } catch (error) {
-    console.error("Error consultando histórico:", error.message);
+    console.error("Error consultando histórico:", error);
     res.status(500).json({
       ok: false,
-      error: "Error consultando histórico"
+      error: "Error consultando histórico",
+      detail: error.message
     });
   }
 });
