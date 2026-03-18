@@ -764,10 +764,81 @@ app.get("/api/device/:device_id", async (req, res) => {
       });
     }
 
-    const meterKey = buildMeterKey(device_id, pmSlave);
-    const latest = latestReadings[meterKey];
+    const sql = `
+      SELECT
+        l.device_id,
+        COALESCE(m.device_name, l.device_name) AS device_name,
+        l.pm_slave,
+        COALESCE(m.pm_name, l.pm_name) AS pm_name,
 
-    if (!latest) {
+        l.token,
+        l.model,
+        l.fw,
+        l.status,
+        l.uptime_ms,
+        l.ip,
+        l.rssi,
+        l.timestamp_ms,
+
+        l.voltage_a,
+        l.voltage_b,
+        l.voltage_c,
+
+        l.current_a,
+        l.current_b,
+        l.current_c,
+        l.current_n,
+
+        l.p_a,
+        l.p_b,
+        l.p_c,
+        l.p_tot,
+
+        l.q_a,
+        l.q_b,
+        l.q_c,
+        l.q_tot,
+
+        l.s_a,
+        l.s_b,
+        l.s_c,
+        l.s_tot,
+
+        l.pf_a,
+        l.pf_b,
+        l.pf_c,
+        l.pf_tot,
+
+        l.frecuencia,
+
+        l.thd_va,
+        l.thd_vb,
+        l.thd_vc,
+
+        l.thd_ia,
+        l.thd_ib,
+        l.thd_ic,
+        l.thd_in,
+
+        l.desbalance_v,
+        l.desbalance_i,
+
+        l.raw_payload,
+        l.created_at,
+        l.updated_at
+
+      FROM power_latest l
+      LEFT JOIN power_meters m
+        ON l.device_id = m.device_id
+       AND l.pm_slave = m.pm_slave
+      WHERE l.device_id = $1
+        AND l.pm_slave = $2
+      LIMIT 1
+    `;
+
+    const result = await pool.query(sql, [device_id, pmSlave]);
+
+    if (result.rows.length === 0) {
       return res.json({
         ok: false,
         error: "No se encontraron datos del medidor",
@@ -780,14 +851,15 @@ app.get("/api/device/:device_id", async (req, res) => {
       ok: true,
       device_id,
       pm_slave: pmSlave,
-      data: latest.data,
-      created_at: latest.updated_at
+      data: result.rows[0],
+      created_at: result.rows[0].updated_at
     });
   } catch (error) {
-    console.error("Error consultando device:", error.message);
+    console.error("Error consultando device:", error);
     res.status(500).json({
       ok: false,
-      error: "Error consultando device"
+      error: "Error consultando device",
+      detail: error.message
     });
   }
 });
@@ -851,72 +923,75 @@ app.get("/api/history", async (req, res) => {
 
     let sql = `
       SELECT
-        device_id,
-        device_name,
-        pm_slave,
-        pm_name,
+        r.device_id,
+        COALESCE(m.device_name, r.device_name) AS device_name,
+        r.pm_slave,
+        COALESCE(m.pm_name, r.pm_name) AS pm_name,
 
-        voltage_a,
-        voltage_b,
-        voltage_c,
+        r.voltage_a,
+        r.voltage_b,
+        r.voltage_c,
 
-        current_a,
-        current_b,
-        current_c,
-        current_n,
+        r.current_a,
+        r.current_b,
+        r.current_c,
+        r.current_n,
 
-        p_a,
-        p_b,
-        p_c,
-        p_tot,
+        r.p_a,
+        r.p_b,
+        r.p_c,
+        r.p_tot,
 
-        q_a,
-        q_b,
-        q_c,
-        q_tot,
+        r.q_a,
+        r.q_b,
+        r.q_c,
+        r.q_tot,
 
-        s_a,
-        s_b,
-        s_c,
-        s_tot,
+        r.s_a,
+        r.s_b,
+        r.s_c,
+        r.s_tot,
 
-        pf_a,
-        pf_b,
-        pf_c,
-        pf_tot,
+        r.pf_a,
+        r.pf_b,
+        r.pf_c,
+        r.pf_tot,
 
-        frecuencia,
+        r.frecuencia,
 
-        thd_va,
-        thd_vb,
-        thd_vc,
+        r.thd_va,
+        r.thd_vb,
+        r.thd_vc,
 
-        thd_ia,
-        thd_ib,
-        thd_ic,
-        thd_in,
+        r.thd_ia,
+        r.thd_ib,
+        r.thd_ic,
+        r.thd_in,
 
-        desbalance_v,
-        desbalance_i,
+        r.desbalance_v,
+        r.desbalance_i,
 
-        raw_payload,
-        created_at
-      FROM power_readings
-      WHERE device_id = $1
-        AND pm_slave = $2
+        r.raw_payload,
+        r.created_at
+      FROM power_readings r
+      LEFT JOIN power_meters m
+        ON r.device_id = m.device_id
+       AND r.pm_slave = m.pm_slave
+      WHERE r.device_id = $1
+        AND r.pm_slave = $2
     `;
 
     const values = [device_id, pmSlave];
 
     if (from && to) {
       sql += `
-        AND created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-        AND created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
       `;
       values.push(from, to);
     }
 
-    sql += ` ORDER BY created_at ASC`;
+    sql += ` ORDER BY r.created_at ASC`;
 
     const result = await pool.query(sql, values);
 
@@ -959,61 +1034,64 @@ app.get("/api/history/export", async (req, res) => {
 
     const sql = `
       SELECT
-        created_at,
-        device_id,
-        device_name,
-        pm_slave,
-        pm_name,
+        r.created_at,
+        r.device_id,
+        COALESCE(m.device_name, r.device_name) AS device_name,
+        r.pm_slave,
+        COALESCE(m.pm_name, r.pm_name) AS pm_name,
 
-        voltage_a,
-        voltage_b,
-        voltage_c,
+        r.voltage_a,
+        r.voltage_b,
+        r.voltage_c,
 
-        current_a,
-        current_b,
-        current_c,
-        current_n,
+        r.current_a,
+        r.current_b,
+        r.current_c,
+        r.current_n,
 
-        p_a,
-        p_b,
-        p_c,
-        p_tot,
+        r.p_a,
+        r.p_b,
+        r.p_c,
+        r.p_tot,
 
-        q_a,
-        q_b,
-        q_c,
-        q_tot,
+        r.q_a,
+        r.q_b,
+        r.q_c,
+        r.q_tot,
 
-        s_a,
-        s_b,
-        s_c,
-        s_tot,
+        r.s_a,
+        r.s_b,
+        r.s_c,
+        r.s_tot,
 
-        pf_a,
-        pf_b,
-        pf_c,
-        pf_tot,
+        r.pf_a,
+        r.pf_b,
+        r.pf_c,
+        r.pf_tot,
 
-        frecuencia,
+        r.frecuencia,
 
-        thd_va,
-        thd_vb,
-        thd_vc,
+        r.thd_va,
+        r.thd_vb,
+        r.thd_vc,
 
-        thd_ia,
-        thd_ib,
-        thd_ic,
-        thd_in,
+        r.thd_ia,
+        r.thd_ib,
+        r.thd_ic,
+        r.thd_in,
 
-        desbalance_v,
-        desbalance_i
+        r.desbalance_v,
+        r.desbalance_i
 
-      FROM power_readings
-      WHERE device_id = $1
-        AND pm_slave = $2
-        AND created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-        AND created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      ORDER BY created_at ASC
+      FROM power_readings r
+      LEFT JOIN power_meters m
+        ON r.device_id = m.device_id
+       AND r.pm_slave = m.pm_slave
+      WHERE r.device_id = $1
+        AND r.pm_slave = $2
+        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+      ORDER BY r.created_at ASC
     `;
 
     const values = [device_id, pmSlave, from, to];
@@ -1132,12 +1210,12 @@ app.get("/api/history/export", async (req, res) => {
     }
 
     res.end();
-
   } catch (error) {
-    console.error("Error exportando CSV:", error.message);
+    console.error("Error exportando CSV:", error);
     res.status(500).json({
       ok: false,
-      error: "Error exportando CSV"
+      error: "Error exportando CSV",
+      detail: error.message
     });
   }
 });
