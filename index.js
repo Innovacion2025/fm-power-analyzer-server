@@ -565,7 +565,7 @@ app.post("/api/save-reading", async (req, res) => {
     await upsertMeter(data);
     await upsertLatest(data);
 
-    const SAVE_INTERVAL = 10000;
+    const SAVE_INTERVAL = 2000;
 
     if (!global.lastSaveTimes) {
       global.lastSaveTimes = {};
@@ -929,6 +929,8 @@ app.get("/api/history", async (req, res) => {
         r.pm_slave,
         m.pm_name AS pm_name,
 
+        r.timestamp_ms,
+
         r.voltage_a,
         r.voltage_b,
         r.voltage_c,
@@ -992,7 +994,7 @@ app.get("/api/history", async (req, res) => {
       values.push(from, to);
     }
 
-    sql += ` ORDER BY r.created_at ASC`;
+    sql += ` ORDER BY r.timestamp_ms ASC NULLS LAST, r.created_at ASC`;
 
     const result = await pool.query(sql, values);
 
@@ -1036,6 +1038,7 @@ app.get("/api/history/export", async (req, res) => {
     const sql = `
       SELECT
         r.created_at,
+        r.timestamp_ms,
         r.device_id,
         m.device_name AS device_name,
         r.pm_slave,
@@ -1092,7 +1095,7 @@ app.get("/api/history/export", async (req, res) => {
         AND r.pm_slave = $2
         AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
         AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      ORDER BY r.created_at ASC
+      ORDER BY r.timestamp_ms ASC NULLS LAST, r.created_at ASC
     `;
 
     const values = [device_id, pmSlave, from, to];
@@ -1107,6 +1110,7 @@ app.get("/api/history/export", async (req, res) => {
 
     const headers = [
       "created_at",
+      "timestamp_ms",
       "device_id",
       "device_name",
       "pm_slave",
@@ -1155,6 +1159,7 @@ app.get("/api/history/export", async (req, res) => {
               timeZone: "America/Guayaquil"
             })
           : "",
+        row.timestamp_ms ?? "",
         row.device_id ?? "",
         row.device_name ?? "",
         row.pm_slave ?? "",
