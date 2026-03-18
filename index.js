@@ -826,7 +826,8 @@ app.get("/api/device/:device_id", async (req, res) => {
 
         l.raw_payload,
         l.created_at,
-        l.updated_at
+        l.updated_at,
+        l.updated_at AS visible_at
 
       FROM power_latest l
       LEFT JOIN power_meters m
@@ -852,8 +853,7 @@ app.get("/api/device/:device_id", async (req, res) => {
       ok: true,
       device_id,
       pm_slave: pmSlave,
-      data: result.rows[0],
-      created_at: result.rows[0].updated_at
+      data: result.rows[0]
     });
   } catch (error) {
     console.error("Error consultando device:", error);
@@ -975,7 +975,8 @@ app.get("/api/history", async (req, res) => {
         r.desbalance_i,
 
         r.raw_payload,
-        r.created_at
+        r.created_at,
+        r.created_at AS visible_at
       FROM power_readings r
       LEFT JOIN power_meters m
         ON r.device_id = m.device_id
