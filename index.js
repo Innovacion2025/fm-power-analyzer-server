@@ -745,7 +745,7 @@ app.post("/api/save-reading", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "Error guardando lectura"
-      datail: error.message
+      detail: error.message
     });
   }
 });
