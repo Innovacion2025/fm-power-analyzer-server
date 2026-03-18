@@ -767,9 +767,9 @@ app.get("/api/device/:device_id", async (req, res) => {
     const sql = `
       SELECT
         l.device_id,
-        COALESCE(m.device_name, l.device_name) AS device_name,
+        m.device_name AS device_name,
         l.pm_slave,
-        COALESCE(m.pm_name, l.pm_name) AS pm_name,
+        m.pm_name AS pm_name,
 
         l.token,
         l.model,
@@ -924,9 +924,9 @@ app.get("/api/history", async (req, res) => {
     let sql = `
       SELECT
         r.device_id,
-        COALESCE(m.device_name, r.device_name) AS device_name,
+        m.device_name AS device_name,
         r.pm_slave,
-        COALESCE(m.pm_name, r.pm_name) AS pm_name,
+        m.pm_name AS pm_name,
 
         r.voltage_a,
         r.voltage_b,
@@ -1036,9 +1036,9 @@ app.get("/api/history/export", async (req, res) => {
       SELECT
         r.created_at,
         r.device_id,
-        COALESCE(m.device_name, r.device_name) AS device_name,
+        m.device_name AS device_name,
         r.pm_slave,
-        COALESCE(m.pm_name, r.pm_name) AS pm_name,
+        m.pm_name AS pm_name,
 
         r.voltage_a,
         r.voltage_b,
