@@ -994,8 +994,8 @@ app.get("/api/history", async (req, res) => {
       `;
       values.push(from, to);
     }
-
-    sql += ` ORDER BY r.timestamp_ms ASC NULLS LAST, r.created_at ASC`;
+  
+  sql += ` ORDER BY r.created_at ASC, r.id ASC`;
 
     const result = await pool.query(sql, values);
 
@@ -1096,7 +1096,7 @@ app.get("/api/history/export", async (req, res) => {
         AND r.pm_slave = $2
         AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
         AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      ORDER BY r.timestamp_ms ASC NULLS LAST, r.created_at ASC
+      ORDER BY r.created_at ASC, r.id ASC
     `;
 
     const values = [device_id, pmSlave, from, to];
