@@ -906,327 +906,328 @@ app.get("/api/meters/:device_id", async (req, res) => {
   }
 });
 
-// ============================================================
-// BLOQUE 12: API - HISTORICO PARA GRAFICAS
-// ============================================================
-app.get("/api/history", async (req, res) => {
-  try {
-    const { device_id, from, to } = req.query;
-    const pmSlave = Number(req.query.pm_slave);
-
-    if (!device_id) {
-      return res.status(400).json({ ok: false, error: "Falta device_id" });
-    }
-
-    if (!Number.isInteger(pmSlave)) {
-      return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
-    }
-
-    let sql = `
-      SELECT
-        r.device_id,
-        m.device_name AS device_name,
-        r.pm_slave,
-        m.pm_name AS pm_name,
-
-        r.timestamp_ms,
-
-        r.voltage_a,
-        r.voltage_b,
-        r.voltage_c,
-
-        r.current_a,
-        r.current_b,
-        r.current_c,
-        r.current_n,
-
-        r.p_a,
-        r.p_b,
-        r.p_c,
-        r.p_tot,
-
-        r.q_a,
-        r.q_b,
-        r.q_c,
-        r.q_tot,
-
-        r.s_a,
-        r.s_b,
-        r.s_c,
-        r.s_tot,
-
-        r.pf_a,
-        r.pf_b,
-        r.pf_c,
-        r.pf_tot,
-
-        r.frecuencia,
-
-        r.thd_va,
-        r.thd_vb,
-        r.thd_vc,
-
-        r.thd_ia,
-        r.thd_ib,
-        r.thd_ic,
-        r.thd_in,
-
-        r.desbalance_v,
-        r.desbalance_i,
-
-        r.raw_payload,
-        r.created_at,
-        r.created_at AS visible_at
-      FROM power_readings r
-      LEFT JOIN power_meters m
-        ON r.device_id = m.device_id
-       AND r.pm_slave = m.pm_slave
-      WHERE r.device_id = $1
-        AND r.pm_slave = $2
-    `;
-
-    const values = [device_id, pmSlave];
-
-    if (from && to) {
-      sql += `
-        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      `;
-      values.push(from, to);
-    }
+  // ============================================================
+  // BLOQUE 12: API - HISTORICO PARA GRAFICAS
+  // ============================================================
+  app.get("/api/history", async (req, res) => {
+    try {
+      const { device_id, from, to } = req.query;
+      const pmSlave = Number(req.query.pm_slave);
   
-  sql += ` ORDER BY r.created_at ASC, r.id ASC`;
-
-    const result = await pool.query(sql, values);
-
-    res.json({
-      ok: true,
-      device_id,
-      pm_slave: pmSlave,
-      total: result.rows.length,
-      data: result.rows
-    });
-  } catch (error) {
-    console.error("Error consultando histórico:", error);
-    res.status(500).json({
-      ok: false,
-      error: "Error consultando histórico",
-      detail: error.message
-    });
-  }
-});
-
-// ============================================================
-// BLOQUE 12A: API - EXPORTAR HISTORICO EN CSV POR RANGO
-// ============================================================
-app.get("/api/history/export", async (req, res) => {
-  try {
-    const { device_id, from, to } = req.query;
-    const pmSlave = Number(req.query.pm_slave);
-
-    if (!device_id) {
-      return res.status(400).json({ ok: false, error: "Falta device_id" });
-    }
-
-    if (!Number.isInteger(pmSlave)) {
-      return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
-    }
-
-    if (!from || !to) {
-      return res.status(400).json({ ok: false, error: "Faltan fechas from y to" });
-    }
-
-    const sql = `
-      SELECT
-        r.created_at,
-        r.timestamp_ms,
-        r.device_id,
-        m.device_name AS device_name,
-        r.pm_slave,
-        m.pm_name AS pm_name,
-
-        r.voltage_a,
-        r.voltage_b,
-        r.voltage_c,
-
-        r.current_a,
-        r.current_b,
-        r.current_c,
-        r.current_n,
-
-        r.p_a,
-        r.p_b,
-        r.p_c,
-        r.p_tot,
-
-        r.q_a,
-        r.q_b,
-        r.q_c,
-        r.q_tot,
-
-        r.s_a,
-        r.s_b,
-        r.s_c,
-        r.s_tot,
-
-        r.pf_a,
-        r.pf_b,
-        r.pf_c,
-        r.pf_tot,
-
-        r.frecuencia,
-
-        r.thd_va,
-        r.thd_vb,
-        r.thd_vc,
-
-        r.thd_ia,
-        r.thd_ib,
-        r.thd_ic,
-        r.thd_in,
-
-        r.desbalance_v,
-        r.desbalance_i
-
-      FROM power_readings r
-      LEFT JOIN power_meters m
-        ON r.device_id = m.device_id
-       AND r.pm_slave = m.pm_slave
-      WHERE r.device_id = $1
-        AND r.pm_slave = $2
-        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      ORDER BY r.created_at ASC, r.id ASC
-    `;
-
-    const values = [device_id, pmSlave, from, to];
-    const result = await pool.query(sql, values);
-    const rows = result.rows;
-
-    const fileName = `${device_id}_PM${pmSlave}_${from}_to_${to}.csv`;
-
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-    res.write("\uFEFF");
-
-    const headers = [
-      "created_at",
-      "timestamp_ms",
-      "device_id",
-      "device_name",
-      "pm_slave",
-      "pm_name",
-      "voltage_a",
-      "voltage_b",
-      "voltage_c",
-      "current_a",
-      "current_b",
-      "current_c",
-      "current_n",
-      "p_a",
-      "p_b",
-      "p_c",
-      "p_tot",
-      "q_a",
-      "q_b",
-      "q_c",
-      "q_tot",
-      "s_a",
-      "s_b",
-      "s_c",
-      "s_tot",
-      "pf_a",
-      "pf_b",
-      "pf_c",
-      "pf_tot",
-      "frecuencia",
-      "thd_va",
-      "thd_vb",
-      "thd_vc",
-      "thd_ia",
-      "thd_ib",
-      "thd_ic",
-      "thd_in",
-      "desbalance_v",
-      "desbalance_i"
-    ];
-
-    res.write(headers.join(",") + "\n");
-
-    for (const row of rows) {
-      const rowValues = [
-        row.created_at
-          ? new Date(row.created_at).toLocaleString("es-EC", {
-              timeZone: "America/Guayaquil"
-            })
-          : "",
-        row.timestamp_ms ?? "",
-        row.device_id ?? "",
-        row.device_name ?? "",
-        row.pm_slave ?? "",
-        row.pm_name ?? "",
-
-        row.voltage_a ?? "",
-        row.voltage_b ?? "",
-        row.voltage_c ?? "",
-
-        row.current_a ?? "",
-        row.current_b ?? "",
-        row.current_c ?? "",
-        row.current_n ?? "",
-
-        row.p_a ?? "",
-        row.p_b ?? "",
-        row.p_c ?? "",
-        row.p_tot ?? "",
-
-        row.q_a ?? "",
-        row.q_b ?? "",
-        row.q_c ?? "",
-        row.q_tot ?? "",
-
-        row.s_a ?? "",
-        row.s_b ?? "",
-        row.s_c ?? "",
-        row.s_tot ?? "",
-
-        row.pf_a ?? "",
-        row.pf_b ?? "",
-        row.pf_c ?? "",
-        row.pf_tot ?? "",
-
-        row.frecuencia ?? "",
-
-        row.thd_va ?? "",
-        row.thd_vb ?? "",
-        row.thd_vc ?? "",
-
-        row.thd_ia ?? "",
-        row.thd_ib ?? "",
-        row.thd_ic ?? "",
-        row.thd_in ?? "",
-
-        row.desbalance_v ?? "",
-        row.desbalance_i ?? ""
-      ].map(value => {
-        const text = String(value);
-        return `"${text.replace(/"/g, '""')}"`;
+      if (!device_id) {
+        return res.status(400).json({ ok: false, error: "Falta device_id" });
+      }
+  
+      if (!Number.isInteger(pmSlave)) {
+        return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
+      }
+  
+      let sql = `
+        SELECT
+          r.id,
+          r.device_id,
+          m.device_name AS device_name,
+          r.pm_slave,
+          m.pm_name AS pm_name,
+  
+          r.timestamp_ms,
+  
+          r.voltage_a,
+          r.voltage_b,
+          r.voltage_c,
+  
+          r.current_a,
+          r.current_b,
+          r.current_c,
+          r.current_n,
+  
+          r.p_a,
+          r.p_b,
+          r.p_c,
+          r.p_tot,
+  
+          r.q_a,
+          r.q_b,
+          r.q_c,
+          r.q_tot,
+  
+          r.s_a,
+          r.s_b,
+          r.s_c,
+          r.s_tot,
+  
+          r.pf_a,
+          r.pf_b,
+          r.pf_c,
+          r.pf_tot,
+  
+          r.frecuencia,
+  
+          r.thd_va,
+          r.thd_vb,
+          r.thd_vc,
+  
+          r.thd_ia,
+          r.thd_ib,
+          r.thd_ic,
+          r.thd_in,
+  
+          r.desbalance_v,
+          r.desbalance_i,
+  
+          r.raw_payload,
+          r.created_at,
+          r.created_at AS visible_at
+        FROM power_readings r
+        LEFT JOIN power_meters m
+          ON r.device_id = m.device_id
+         AND r.pm_slave = m.pm_slave
+        WHERE r.device_id = $1
+          AND r.pm_slave = $2
+      `;
+  
+      const values = [device_id, pmSlave];
+  
+      if (from && to) {
+        sql += `
+          AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        `;
+        values.push(from, to);
+      }
+  
+      sql += ` ORDER BY r.created_at ASC, r.id ASC`;
+  
+      const result = await pool.query(sql, values);
+  
+      res.json({
+        ok: true,
+        device_id,
+        pm_slave: pmSlave,
+        total: result.rows.length,
+        data: result.rows
       });
-
-      res.write(rowValues.join(",") + "\n");
+    } catch (error) {
+      console.error("Error consultando histórico:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Error consultando histórico",
+        detail: error.message
+      });
     }
+  });
 
-    res.end();
-  } catch (error) {
-    console.error("Error exportando CSV:", error);
-    res.status(500).json({
-      ok: false,
-      error: "Error exportando CSV",
-      detail: error.message
-    });
-  }
-});
-
+  // ============================================================
+  // BLOQUE 12A: API - EXPORTAR HISTORICO EN CSV POR RANGO
+  // ============================================================
+  app.get("/api/history/export", async (req, res) => {
+    try {
+      const { device_id, from, to } = req.query;
+      const pmSlave = Number(req.query.pm_slave);
+  
+      if (!device_id) {
+        return res.status(400).json({ ok: false, error: "Falta device_id" });
+      }
+  
+      if (!Number.isInteger(pmSlave)) {
+        return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
+      }
+  
+      if (!from || !to) {
+        return res.status(400).json({ ok: false, error: "Faltan fechas from y to" });
+      }
+  
+      const sql = `
+        SELECT
+          r.id,
+          r.created_at,
+          r.timestamp_ms,
+          r.device_id,
+          m.device_name AS device_name,
+          r.pm_slave,
+          m.pm_name AS pm_name,
+  
+          r.voltage_a,
+          r.voltage_b,
+          r.voltage_c,
+  
+          r.current_a,
+          r.current_b,
+          r.current_c,
+          r.current_n,
+  
+          r.p_a,
+          r.p_b,
+          r.p_c,
+          r.p_tot,
+  
+          r.q_a,
+          r.q_b,
+          r.q_c,
+          r.q_tot,
+  
+          r.s_a,
+          r.s_b,
+          r.s_c,
+          r.s_tot,
+  
+          r.pf_a,
+          r.pf_b,
+          r.pf_c,
+          r.pf_tot,
+  
+          r.frecuencia,
+  
+          r.thd_va,
+          r.thd_vb,
+          r.thd_vc,
+  
+          r.thd_ia,
+          r.thd_ib,
+          r.thd_ic,
+          r.thd_in,
+  
+          r.desbalance_v,
+          r.desbalance_i
+  
+        FROM power_readings r
+        LEFT JOIN power_meters m
+          ON r.device_id = m.device_id
+         AND r.pm_slave = m.pm_slave
+        WHERE r.device_id = $1
+          AND r.pm_slave = $2
+          AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        ORDER BY r.created_at ASC, r.id ASC
+      `;
+  
+      const values = [device_id, pmSlave, from, to];
+      const result = await pool.query(sql, values);
+      const rows = result.rows;
+  
+      const fileName = `${device_id}_PM${pmSlave}_${from}_to_${to}.csv`;
+  
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+      res.write("\uFEFF");
+  
+      const headers = [
+        "created_at",
+        "timestamp_ms",
+        "device_id",
+        "device_name",
+        "pm_slave",
+        "pm_name",
+        "voltage_a",
+        "voltage_b",
+        "voltage_c",
+        "current_a",
+        "current_b",
+        "current_c",
+        "current_n",
+        "p_a",
+        "p_b",
+        "p_c",
+        "p_tot",
+        "q_a",
+        "q_b",
+        "q_c",
+        "q_tot",
+        "s_a",
+        "s_b",
+        "s_c",
+        "s_tot",
+        "pf_a",
+        "pf_b",
+        "pf_c",
+        "pf_tot",
+        "frecuencia",
+        "thd_va",
+        "thd_vb",
+        "thd_vc",
+        "thd_ia",
+        "thd_ib",
+        "thd_ic",
+        "thd_in",
+        "desbalance_v",
+        "desbalance_i"
+      ];
+  
+      res.write(headers.join(",") + "\n");
+  
+      for (const row of rows) {
+        const rowValues = [
+          row.created_at
+            ? new Date(row.created_at).toLocaleString("es-EC", {
+                timeZone: "America/Guayaquil"
+              })
+            : "",
+          row.timestamp_ms ?? "",
+          row.device_id ?? "",
+          row.device_name ?? "",
+          row.pm_slave ?? "",
+          row.pm_name ?? "",
+  
+          row.voltage_a ?? "",
+          row.voltage_b ?? "",
+          row.voltage_c ?? "",
+  
+          row.current_a ?? "",
+          row.current_b ?? "",
+          row.current_c ?? "",
+          row.current_n ?? "",
+  
+          row.p_a ?? "",
+          row.p_b ?? "",
+          row.p_c ?? "",
+          row.p_tot ?? "",
+  
+          row.q_a ?? "",
+          row.q_b ?? "",
+          row.q_c ?? "",
+          row.q_tot ?? "",
+  
+          row.s_a ?? "",
+          row.s_b ?? "",
+          row.s_c ?? "",
+          row.s_tot ?? "",
+  
+          row.pf_a ?? "",
+          row.pf_b ?? "",
+          row.pf_c ?? "",
+          row.pf_tot ?? "",
+  
+          row.frecuencia ?? "",
+  
+          row.thd_va ?? "",
+          row.thd_vb ?? "",
+          row.thd_vc ?? "",
+  
+          row.thd_ia ?? "",
+          row.thd_ib ?? "",
+          row.thd_ic ?? "",
+          row.thd_in ?? "",
+  
+          row.desbalance_v ?? "",
+          row.desbalance_i ?? ""
+        ].map(value => {
+          const text = String(value);
+          return `"${text.replace(/"/g, '""')}"`;
+        });
+  
+        res.write(rowValues.join(",") + "\n");
+      }
+  
+      res.end();
+    } catch (error) {
+      console.error("Error exportando CSV:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Error exportando CSV",
+        detail: error.message
+      });
+    }
+  });
 // ============================================================
 // BLOQUE 13: ENDPOINTS DE NODE-RED
 // ============================================================
