@@ -1228,6 +1228,57 @@ app.get("/api/meters/:device_id", async (req, res) => {
       });
     }
   });
+
+// ============================================================
+// BLOQUE 12B: AUTH DASHBOARD (TOKEN)
+// ============================================================
+app.get("/api/dashboard-auth", async (req, res) => {
+  try {
+    const device_id = String(req.query.device_id || "").trim();
+    const token = String(req.query.token || "").trim();
+
+    if (!device_id || !token) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_params",
+        message: "Faltan device_id o token"
+      });
+    }
+
+    const sql = `
+      SELECT device_id
+      FROM power_meters
+      WHERE device_id = $1
+        AND token = $2
+      LIMIT 1
+    `;
+
+    const result = await pool.query(sql, [device_id, token]);
+
+    if (result.rowCount === 0) {
+      return res.status(401).json({
+        ok: false,
+        error: "token_incorrecto",
+        message: "Token incorrecto para este dispositivo"
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Acceso concedido",
+      device_id
+    });
+
+  } catch (err) {
+    console.error("Error en /api/dashboard-auth:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "server_error",
+      message: "Error interno validando acceso"
+    });
+  }
+});
+
 // ============================================================
 // BLOQUE 13: ENDPOINTS DE NODE-RED
 // ============================================================
