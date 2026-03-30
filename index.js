@@ -76,9 +76,9 @@ const settings = {
 // ============================================================
 // BLOQUE 7: CONEXION A POSTGRESQL
 // ============================================================
-const dbUrl = String(process.env.SUPABASE_URL || "").trim();
+const dbUrl = String(process.env.DATABASE_URL || "").trim();
 
-console.log("SUPABASE_URL:", JSON.stringify(dbUrl));
+console.log("DATABASE_URL:", JSON.stringify(dbUrl));
 
 const pool = new Pool({
   connectionString: dbUrl,
