@@ -76,6 +76,7 @@ const settings = {
 // ============================================================
 // BLOQUE 7: CONEXION A POSTGRESQL
 // ============================================================
+console.log("DATABASE_URL RAW:", JSON.stringify(process.env.DATABASE_URL));
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
