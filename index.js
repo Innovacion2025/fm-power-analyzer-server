@@ -76,13 +76,9 @@ const settings = {
 // ============================================================
 // BLOQUE 7: CONEXION A POSTGRESQL
 // ============================================================
-const dbUrl = String(process.env.DATABASE_URL || "").trim();
+const dbUrl = String(process.env.SUPABASE_URL || "").trim();
 
-console.log("DATABASE_URL RAW:", JSON.stringify(process.env.DATABASE_URL));
-console.log("DATABASE_URL TRIM:", JSON.stringify(dbUrl));
-console.log("USA POOLER:", dbUrl.includes("pooler.supabase.com"));
-console.log("USA 6543:", dbUrl.includes(":6543"));
-console.log("USA HOST DIRECTO:", dbUrl.includes("db.hdfqhqynpqylycfujmxw.supabase.co"));
+console.log("SUPABASE_URL:", JSON.stringify(dbUrl));
 
 const pool = new Pool({
   connectionString: dbUrl,
