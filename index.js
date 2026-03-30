@@ -509,6 +509,246 @@ async function upsertLatest(data) {
 }
 
 // ============================================================
+// BLOQUE 8C: CREACION DE TABLAS PEAK
+// ============================================================
+async function crearTablasPeakSiNoExisten() {
+  try {
+    console.log("Iniciando creacion de tablas PEAK...");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS peak_devices (
+        id BIGSERIAL PRIMARY KEY,
+        device_id TEXT NOT NULL UNIQUE,
+        device_name TEXT,
+        token TEXT,
+        model TEXT,
+        fw TEXT,
+        conn_mode TEXT,
+        ip TEXT,
+        rssi INTEGER,
+        uptime_ms BIGINT,
+        device_timestamp_ms BIGINT,
+        raw_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    console.log("Tabla peak_devices OK");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS peak_counters (
+        id BIGSERIAL PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        counter_index INTEGER NOT NULL,
+        slave_id INTEGER,
+        counter_name TEXT,
+        counter_type TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (device_id, counter_index)
+      );
+    `);
+    console.log("Tabla peak_counters OK");
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS peak_readings (
+        id BIGSERIAL PRIMARY KEY,
+        device_id TEXT NOT NULL,
+        device_name TEXT,
+        token TEXT,
+        model TEXT,
+        fw TEXT,
+        conn_mode TEXT,
+        ip TEXT,
+        rssi INTEGER,
+        uptime_ms BIGINT,
+        device_timestamp_ms BIGINT,
+
+        counter_index INTEGER NOT NULL,
+        slave_id INTEGER,
+        counter_name TEXT,
+        counter_type TEXT,
+        counter_value BIGINT,
+        online BOOLEAN,
+        fail_count INTEGER,
+
+        raw_payload JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    console.log("Tabla peak_readings OK");
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_peak_counters_device
+      ON peak_counters (device_id, counter_index);
+    `);
+    console.log("Indice peak_counters OK");
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_peak_readings_device_counter_time
+      ON peak_readings (device_id, counter_index, created_at DESC);
+    `);
+    console.log("Indice peak_readings tiempo OK");
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_peak_readings_device_counter
+      ON peak_readings (device_id, counter_index);
+    `);
+    console.log("Indice peak_readings device_counter OK");
+
+    console.log("Tablas PEAK listas");
+  } catch (error) {
+    console.error("Error creando tablas PEAK:", error);
+  }
+}
+
+// ============================================================
+// BLOQUE 8D: UPSERT DISPOSITIVO PEAK
+// ============================================================
+async function upsertPeakDevice(data) {
+  const sql = `
+    INSERT INTO peak_devices (
+      device_id,
+      device_name,
+      token,
+      model,
+      fw,
+      conn_mode,
+      ip,
+      rssi,
+      uptime_ms,
+      device_timestamp_ms,
+      raw_payload,
+      updated_at
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+    ON CONFLICT (device_id)
+    DO UPDATE SET
+      device_name = EXCLUDED.device_name,
+      token = EXCLUDED.token,
+      model = EXCLUDED.model,
+      fw = EXCLUDED.fw,
+      conn_mode = EXCLUDED.conn_mode,
+      ip = EXCLUDED.ip,
+      rssi = EXCLUDED.rssi,
+      uptime_ms = EXCLUDED.uptime_ms,
+      device_timestamp_ms = EXCLUDED.device_timestamp_ms,
+      raw_payload = EXCLUDED.raw_payload,
+      updated_at = NOW()
+  `;
+
+  const values = [
+    data.device_id,
+    data.device_name ?? null,
+    data.token ?? null,
+    data.model ?? null,
+    data.fw ?? null,
+    data.conn_mode ?? null,
+    data.ip ?? null,
+    data.rssi ?? null,
+    data.uptime_ms ?? null,
+    data.device_timestamp_ms ?? null,
+    data
+  ];
+
+  await pool.query(sql, values);
+}
+
+// ============================================================
+// BLOQUE 8E: UPSERT CONTADOR PEAK
+// ============================================================
+async function upsertPeakCounter(deviceId, counter) {
+  const sql = `
+    INSERT INTO peak_counters (
+      device_id,
+      counter_index,
+      slave_id,
+      counter_name,
+      counter_type,
+      updated_at
+    )
+    VALUES ($1,$2,$3,$4,$5,NOW())
+    ON CONFLICT (device_id, counter_index)
+    DO UPDATE SET
+      slave_id = EXCLUDED.slave_id,
+      counter_name = EXCLUDED.counter_name,
+      counter_type = EXCLUDED.counter_type,
+      updated_at = NOW()
+  `;
+
+  const values = [
+    deviceId,
+    counter.index,
+    counter.slave_id ?? null,
+    counter.name ?? null,
+    counter.type ?? null
+  ];
+
+  await pool.query(sql, values);
+}
+
+// ============================================================
+// BLOQUE 8F: INSERT HISTORICO PEAK
+// ============================================================
+async function insertPeakReading(data, counter) {
+  const sql = `
+    INSERT INTO peak_readings (
+      device_id,
+      device_name,
+      token,
+      model,
+      fw,
+      conn_mode,
+      ip,
+      rssi,
+      uptime_ms,
+      device_timestamp_ms,
+
+      counter_index,
+      slave_id,
+      counter_name,
+      counter_type,
+      counter_value,
+      online,
+      fail_count,
+
+      raw_payload
+    )
+    VALUES (
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+      $11,$12,$13,$14,$15,$16,$17,
+      $18
+    )
+    RETURNING id, created_at
+  `;
+
+  const values = [
+    data.device_id,
+    data.device_name ?? null,
+    data.token ?? null,
+    data.model ?? null,
+    data.fw ?? null,
+    data.conn_mode ?? null,
+    data.ip ?? null,
+    data.rssi ?? null,
+    data.uptime_ms ?? null,
+    data.device_timestamp_ms ?? null,
+
+    counter.index,
+    counter.slave_id ?? null,
+    counter.name ?? null,
+    counter.type ?? null,
+    counter.value ?? null,
+    counter.online ?? null,
+    counter.fail_count ?? null,
+
+    data
+  ];
+
+  return pool.query(sql, values);
+}
+
+// ============================================================
 // BLOQUE 9: INICIALIZACION DE NODE-RED
 // ============================================================
 RED.init(server, settings);
@@ -1263,6 +1503,261 @@ app.get("/api/dashboard-auth", async (req, res) => {
 });
 
 // ============================================================
+// BLOQUE 12C: API PEAK - GUARDAR LECTURA
+// ============================================================
+app.post("/api/peak/save-reading", async (req, res) => {
+  try {
+    const data = req.body;
+    const counters = Array.isArray(data.counters) ? data.counters : [];
+
+    if (!data.device_id) {
+      return res.status(400).json({
+        ok: false,
+        error: "Falta device_id"
+      });
+    }
+
+    if (counters.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "Faltan counters"
+      });
+    }
+
+    await upsertPeakDevice(data);
+
+    const inserted = [];
+
+    for (const counter of counters) {
+      if (counter.index === undefined || counter.index === null) {
+        continue;
+      }
+
+      await upsertPeakCounter(data.device_id, counter);
+      const result = await insertPeakReading(data, counter);
+
+      inserted.push({
+        counter_index: counter.index,
+        slave_id: counter.slave_id ?? null,
+        counter_name: counter.name ?? null,
+        id: result.rows[0].id,
+        created_at: result.rows[0].created_at
+      });
+    }
+
+    return res.json({
+      ok: true,
+      device_id: data.device_id,
+      device_name: data.device_name ?? null,
+      total_counters_received: counters.length,
+      total_counters_saved: inserted.length,
+      inserted
+    });
+
+  } catch (error) {
+    console.error("Error guardando lectura PEAK:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "Error guardando lectura PEAK",
+      detail: error.message
+    });
+  }
+});
+
+// ============================================================
+// BLOQUE 12D: API PEAK - LISTAR CONTADORES DE UN DEVICE
+// ============================================================
+app.get("/api/peak/counters/:device_id", async (req, res) => {
+  try {
+    const { device_id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT
+        device_id,
+        counter_index,
+        slave_id,
+        counter_name,
+        counter_type,
+        created_at,
+        updated_at
+      FROM peak_counters
+      WHERE device_id = $1
+      ORDER BY counter_index ASC
+      `,
+      [device_id]
+    );
+
+    return res.json({
+      ok: true,
+      device_id,
+      total: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error("Error consultando contadores PEAK:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "Error consultando contadores PEAK",
+      detail: error.message
+    });
+  }
+});
+
+// ============================================================
+// BLOQUE 12E: API PEAK - ULTIMO VALOR DE UN CONTADOR
+// ============================================================
+app.get("/api/peak/device/:device_id", async (req, res) => {
+  try {
+    const { device_id } = req.params;
+    const counterIndex = Number(req.query.counter_index);
+
+    if (!Number.isInteger(counterIndex)) {
+      return res.status(400).json({
+        ok: false,
+        error: "Falta counter_index valido en query"
+      });
+    }
+
+    const sql = `
+      SELECT
+        r.id,
+        r.device_id,
+        r.device_name,
+        r.token,
+        r.model,
+        r.fw,
+        r.conn_mode,
+        r.ip,
+        r.rssi,
+        r.uptime_ms,
+        r.device_timestamp_ms,
+
+        r.counter_index,
+        r.slave_id,
+        r.counter_name,
+        r.counter_type,
+        r.counter_value,
+        r.online,
+        r.fail_count,
+
+        r.raw_payload,
+        r.created_at,
+        r.created_at AS visible_at
+
+      FROM peak_readings r
+      WHERE r.device_id = $1
+        AND r.counter_index = $2
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1
+    `;
+
+    const result = await pool.query(sql, [device_id, counterIndex]);
+
+    if (result.rows.length === 0) {
+      return res.json({
+        ok: false,
+        error: "No se encontraron datos del contador",
+        device_id,
+        counter_index: counterIndex
+      });
+    }
+
+    return res.json({
+      ok: true,
+      device_id,
+      counter_index: counterIndex,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error("Error consultando ultimo valor PEAK:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "Error consultando ultimo valor PEAK",
+      detail: error.message
+    });
+  }
+});
+
+// ============================================================
+// BLOQUE 12F: API PEAK - HISTORICO POR CONTADOR
+// ============================================================
+app.get("/api/peak/history", async (req, res) => {
+  try {
+    const { device_id, from, to } = req.query;
+    const counterIndex = Number(req.query.counter_index);
+
+    if (!device_id) {
+      return res.status(400).json({ ok: false, error: "Falta device_id" });
+    }
+
+    if (!Number.isInteger(counterIndex)) {
+      return res.status(400).json({ ok: false, error: "Falta counter_index valido" });
+    }
+
+    let sql = `
+      SELECT
+        r.id,
+        r.device_id,
+        r.device_name,
+        r.token,
+        r.model,
+        r.fw,
+        r.conn_mode,
+        r.ip,
+        r.rssi,
+        r.uptime_ms,
+        r.device_timestamp_ms,
+
+        r.counter_index,
+        r.slave_id,
+        r.counter_name,
+        r.counter_type,
+        r.counter_value,
+        r.online,
+        r.fail_count,
+
+        r.raw_payload,
+        r.created_at,
+        r.created_at AS visible_at
+
+      FROM peak_readings r
+      WHERE r.device_id = $1
+        AND r.counter_index = $2
+    `;
+
+    const values = [device_id, counterIndex];
+
+    if (from && to) {
+      sql += `
+        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+      `;
+      values.push(from, to);
+    }
+
+    sql += ` ORDER BY r.created_at ASC, r.id ASC`;
+
+    const result = await pool.query(sql, values);
+
+    return res.json({
+      ok: true,
+      device_id,
+      counter_index: counterIndex,
+      total: result.rows.length,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error("Error consultando historico PEAK:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "Error consultando historico PEAK",
+      detail: error.message
+    });
+  }
+});
+
+// ============================================================
 // BLOQUE 13: ENDPOINTS DE NODE-RED
 // ============================================================
 app.use("/", RED.httpNode);
@@ -1273,6 +1768,7 @@ app.use("/", RED.httpNode);
 async function iniciar() {
   await probarPostgres();
   await crearTablasSiNoExisten();
+  await crearTablasPeakSiNoExisten();
   await RED.start();
 }
 
