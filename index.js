@@ -99,7 +99,7 @@ async function probarPostgres() {
     const result = await pool.query("SELECT NOW() as fecha");
     console.log("PostgreSQL conectado OK:", result.rows[0].fecha);
   } catch (error) {
-    console.error("Error conectando a PostgreSQL:", error.message);
+    console.error("Error conectando a PostgreSQL:", error);
   }
 }
 
@@ -108,6 +108,8 @@ async function probarPostgres() {
 // ============================================================
 async function crearTablasSiNoExisten() {
   try {
+    console.log("Iniciando creacion de tablas...");
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS power_meters (
         id BIGSERIAL PRIMARY KEY,
@@ -123,162 +125,139 @@ async function crearTablasSiNoExisten() {
         UNIQUE (device_id, pm_slave)
       );
     `);
+    console.log("Tabla power_meters OK");
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS power_readings (
         id BIGSERIAL PRIMARY KEY,
-
         device_id TEXT NOT NULL,
         device_name TEXT,
         pm_slave INTEGER NOT NULL,
         pm_name TEXT,
-
         token TEXT,
         model TEXT,
         fw TEXT,
         status TEXT,
-
         uptime_ms BIGINT,
         ip TEXT,
         rssi INTEGER,
         timestamp_ms BIGINT,
-
         voltage_a NUMERIC(12,3),
         voltage_b NUMERIC(12,3),
         voltage_c NUMERIC(12,3),
-
         current_a NUMERIC(12,3),
         current_b NUMERIC(12,3),
         current_c NUMERIC(12,3),
         current_n NUMERIC(12,3),
-
         p_a NUMERIC(14,3),
         p_b NUMERIC(14,3),
         p_c NUMERIC(14,3),
         p_tot NUMERIC(14,3),
-
         q_a NUMERIC(14,3),
         q_b NUMERIC(14,3),
         q_c NUMERIC(14,3),
         q_tot NUMERIC(14,3),
-
         s_a NUMERIC(14,3),
         s_b NUMERIC(14,3),
         s_c NUMERIC(14,3),
         s_tot NUMERIC(14,3),
-
         pf_a NUMERIC(12,3),
         pf_b NUMERIC(12,3),
         pf_c NUMERIC(12,3),
         pf_tot NUMERIC(12,3),
-
         frecuencia NUMERIC(12,3),
-
         thd_va NUMERIC(12,3),
         thd_vb NUMERIC(12,3),
         thd_vc NUMERIC(12,3),
-
         thd_ia NUMERIC(12,3),
         thd_ib NUMERIC(12,3),
         thd_ic NUMERIC(12,3),
         thd_in NUMERIC(12,3),
-
         desbalance_v NUMERIC(12,3),
         desbalance_i NUMERIC(12,3),
-
         raw_payload JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
     `);
+    console.log("Tabla power_readings OK");
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS power_latest (
         id BIGSERIAL PRIMARY KEY,
-
         device_id TEXT NOT NULL,
         device_name TEXT,
         pm_slave INTEGER NOT NULL,
         pm_name TEXT,
-
         token TEXT,
         model TEXT,
         fw TEXT,
         status TEXT,
-
         uptime_ms BIGINT,
         ip TEXT,
         rssi INTEGER,
         timestamp_ms BIGINT,
-
         voltage_a NUMERIC(12,3),
         voltage_b NUMERIC(12,3),
         voltage_c NUMERIC(12,3),
-
         current_a NUMERIC(12,3),
         current_b NUMERIC(12,3),
         current_c NUMERIC(12,3),
         current_n NUMERIC(12,3),
-
         p_a NUMERIC(14,3),
         p_b NUMERIC(14,3),
         p_c NUMERIC(14,3),
         p_tot NUMERIC(14,3),
-
         q_a NUMERIC(14,3),
         q_b NUMERIC(14,3),
         q_c NUMERIC(14,3),
         q_tot NUMERIC(14,3),
-
         s_a NUMERIC(14,3),
         s_b NUMERIC(14,3),
         s_c NUMERIC(14,3),
         s_tot NUMERIC(14,3),
-
         pf_a NUMERIC(12,3),
         pf_b NUMERIC(12,3),
         pf_c NUMERIC(12,3),
         pf_tot NUMERIC(12,3),
-
         frecuencia NUMERIC(12,3),
-
         thd_va NUMERIC(12,3),
         thd_vb NUMERIC(12,3),
         thd_vc NUMERIC(12,3),
-
         thd_ia NUMERIC(12,3),
         thd_ib NUMERIC(12,3),
         thd_ic NUMERIC(12,3),
         thd_in NUMERIC(12,3),
-
         desbalance_v NUMERIC(12,3),
         desbalance_i NUMERIC(12,3),
-
         raw_payload JSONB,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
         UNIQUE (device_id, pm_slave)
       );
     `);
+    console.log("Tabla power_latest OK");
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_power_readings_device_slave_time
       ON power_readings (device_id, pm_slave, created_at DESC);
     `);
+    console.log("Indice 1 OK");
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_power_readings_device_slave
       ON power_readings (device_id, pm_slave);
     `);
+    console.log("Indice 2 OK");
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_power_latest_device_slave
       ON power_latest (device_id, pm_slave);
     `);
+    console.log("Indice 3 OK");
 
     console.log("Tablas power_meters, power_readings y power_latest listas");
   } catch (error) {
-    console.error("Error creando tablas:", error.message);
+    console.error("Error creando tablas:", error);
   }
 }
 
@@ -745,7 +724,7 @@ app.post("/api/save-reading", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error guardando lectura:", error.message);
+    console.error("Error guardando lectura:", error);
     return res.status(500).json({
       ok: false,
       error: "Error guardando lectura",
@@ -860,7 +839,7 @@ app.get("/api/device/:device_id", async (req, res) => {
       data: result.rows[0]
     });
   } catch (error) {
-    console.error("Error consultando device:", error);
+    console.error("Error consultando device:", error.message);
     res.status(500).json({
       ok: false,
       error: "Error consultando device",
