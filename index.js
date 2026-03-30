@@ -1503,7 +1503,57 @@ app.get("/api/dashboard-auth", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12C: API PEAK - GUARDAR LECTURA
+// BLOQUE 12C: AUTH DASHBOARD PEAK
+// ============================================================
+app.get("/api/peak/dashboard-auth", async (req, res) => {
+  try {
+    const device_id = String(req.query.device_id || "").trim();
+    const token     = String(req.query.token || "").trim();
+
+    if (!device_id || !token) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_params",
+        message: "Faltan device_id o token"
+      });
+    }
+
+    const sql = `
+      SELECT device_id
+      FROM peak_devices
+      WHERE device_id = $1
+        AND token = $2
+      LIMIT 1
+    `;
+
+    const result = await pool.query(sql, [device_id, token]);
+
+    if (result.rowCount === 0) {
+      return res.status(401).json({
+        ok: false,
+        error: "token_incorrecto",
+        message: "Token incorrecto para este gateway"
+      });
+    }
+
+    return res.json({
+      ok: true,
+      message: "Acceso concedido",
+      device_id
+    });
+
+  } catch (err) {
+    console.error("Error en /api/peak/dashboard-auth:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "server_error",
+      message: "Error interno validando acceso"
+    });
+  }
+});
+
+// ============================================================
+// BLOQUE 12D: API PEAK - GUARDAR LECTURA
 // ============================================================
 app.post("/api/peak/save-reading", async (req, res) => {
   try {
@@ -1565,7 +1615,7 @@ app.post("/api/peak/save-reading", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12D: API PEAK - LISTAR CONTADORES DE UN DEVICE
+// BLOQUE 12E: API PEAK - LISTAR CONTADORES DE UN DEVICE
 // ============================================================
 app.get("/api/peak/counters/:device_id", async (req, res) => {
   try {
@@ -1605,7 +1655,7 @@ app.get("/api/peak/counters/:device_id", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12E: API PEAK - ULTIMO VALOR DE UN CONTADOR
+// BLOQUE 12F: API PEAK - ULTIMO VALOR DE UN CONTADOR
 // ============================================================
 app.get("/api/peak/device/:device_id", async (req, res) => {
   try {
@@ -1680,7 +1730,7 @@ app.get("/api/peak/device/:device_id", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12F: API PEAK - HISTORICO POR CONTADOR
+// BLOQUE 12G: API PEAK - HISTORICO POR CONTADOR
 // ============================================================
 app.get("/api/peak/history", async (req, res) => {
   try {
