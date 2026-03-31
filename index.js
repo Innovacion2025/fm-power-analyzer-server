@@ -33,7 +33,7 @@ app.use((req, res, next) => {
 // BLOQUE 4: CREDENCIALES DEL EDITOR NODE-RED
 // ============================================================
 const ADMIN_USER = "fmadmin";
-const ADMIN_PASS = "ClaveTemporal123!";
+const ADMIN_PASS = "fmelectrodo";
 
 // ============================================================
 // BLOQUE 5: BASIC AUTH SOLO PARA /admin
@@ -1453,7 +1453,116 @@ app.get("/api/meters/:device_id", async (req, res) => {
   });
 
 // ============================================================
-// BLOQUE 12B: AUTH DASHBOARD (TOKEN)
+// BLOQUE 12B: API - EXPORTAR HISTORICO PEAK EN CSV POR RANGO
+// ============================================================
+app.get("/api/peak/history/export", async (req, res) => {
+  try {
+    const { device_id, from, to } = req.query;
+
+    if (!device_id) {
+      return res.status(400).json({ ok: false, error: "Falta device_id" });
+    }
+
+    if (!from || !to) {
+      return res.status(400).json({ ok: false, error: "Faltan fechas from y to" });
+    }
+
+    const sql = `
+      SELECT
+        r.id,
+        r.created_at,
+        r.visible_at,
+        r.device_id,
+        d.device_name AS device_name,
+        r.counter_index,
+        c.slave_id,
+        c.counter_name,
+        CASE
+          WHEN LOWER(c.counter_type) = 'fmpro' THEN 'FMPROTECTION'
+          WHEN LOWER(c.counter_type) = 'tstlp' THEN 'TSTLP'
+          ELSE c.counter_type
+        END AS counter_type,
+        r.counter_value,
+        r.online
+
+      FROM peak_readings r
+      LEFT JOIN peak_counters c
+        ON r.device_id = c.device_id
+       AND r.counter_index = c.counter_index
+      LEFT JOIN peak_devices d
+        ON r.device_id = d.device_id
+      WHERE r.device_id = $1
+        AND r.created_at >= (($2::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at < (((($3::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+      ORDER BY r.counter_index ASC, r.created_at ASC, r.id ASC
+    `;
+
+    const values = [device_id, from, to];
+    const result = await pool.query(sql, values);
+    const rows = result.rows;
+
+    const fileName = `${device_id}_PEAK_${from}_to_${to}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.write("\uFEFF");
+
+    const headers = [
+      "created_at",
+      "visible_at",
+      "device_id",
+      "device_name",
+      "counter_index",
+      "slave_id",
+      "counter_name",
+      "counter_type",
+      "counter_value",
+      "online"
+    ];
+
+    res.write(headers.join(",") + "\n");
+
+    for (const row of rows) {
+      const rowValues = [
+        row.created_at
+          ? new Date(row.created_at).toLocaleString("es-EC", {
+              timeZone: "America/Guayaquil"
+            })
+          : "",
+        row.visible_at
+          ? new Date(row.visible_at).toLocaleString("es-EC", {
+              timeZone: "America/Guayaquil"
+            })
+          : "",
+        row.device_id ?? "",
+        row.device_name ?? "",
+        row.counter_index ?? "",
+        row.slave_id ?? "",
+        row.counter_name ?? "",
+        row.counter_type ?? "",
+        row.counter_value ?? "",
+        row.online ?? ""
+      ].map(value => {
+        const text = String(value);
+        return `"${text.replace(/"/g, '""')}"`;
+      });
+
+      res.write(rowValues.join(",") + "\n");
+    }
+
+    res.end();
+  } catch (error) {
+    console.error("Error exportando CSV PEAK:", error);
+    res.status(500).json({
+      ok: false,
+      error: "Error exportando CSV PEAK",
+      detail: error.message
+    });
+  }
+});
+
+// ============================================================
+// BLOQUE 12C: AUTH DASHBOARD (TOKEN)
 // ============================================================
 app.get("/api/dashboard-auth", async (req, res) => {
   try {
@@ -1503,7 +1612,7 @@ app.get("/api/dashboard-auth", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12C: AUTH DASHBOARD PEAK
+// BLOQUE 12D: AUTH DASHBOARD PEAK
 // ============================================================
 app.get("/api/peak/dashboard-auth", async (req, res) => {
   try {
@@ -1553,7 +1662,7 @@ app.get("/api/peak/dashboard-auth", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12D: API PEAK - GUARDAR LECTURA
+// BLOQUE 12E: API PEAK - GUARDAR LECTURA
 // ============================================================
 app.post("/api/peak/save-reading", async (req, res) => {
   try {
@@ -1615,7 +1724,7 @@ app.post("/api/peak/save-reading", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12E: API PEAK - LISTAR CONTADORES DE UN DEVICE
+// BLOQUE 12F: API PEAK - LISTAR CONTADORES DE UN DEVICE
 // ============================================================
 app.get("/api/peak/counters/:device_id", async (req, res) => {
   try {
@@ -1655,7 +1764,7 @@ app.get("/api/peak/counters/:device_id", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12F: API PEAK - ULTIMO VALOR DE UN CONTADOR
+// BLOQUE 12G: API PEAK - ULTIMO VALOR DE UN CONTADOR
 // ============================================================
 app.get("/api/peak/device/:device_id", async (req, res) => {
   try {
@@ -1730,7 +1839,7 @@ app.get("/api/peak/device/:device_id", async (req, res) => {
 });
 
 // ============================================================
-// BLOQUE 12G: API PEAK - HISTORICO POR CONTADOR
+// BLOQUE 12H: API PEAK - HISTORICO POR CONTADOR
 // ============================================================
 app.get("/api/peak/history", async (req, res) => {
   try {
