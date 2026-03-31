@@ -1471,7 +1471,6 @@ app.get("/api/peak/history/export", async (req, res) => {
       SELECT
         r.id,
         r.created_at,
-        r.visible_at,
         r.device_id,
         d.device_name AS device_name,
         r.counter_index,
@@ -1509,7 +1508,6 @@ app.get("/api/peak/history/export", async (req, res) => {
 
     const headers = [
       "created_at",
-      "visible_at",
       "device_id",
       "device_name",
       "counter_index",
@@ -1526,11 +1524,6 @@ app.get("/api/peak/history/export", async (req, res) => {
       const rowValues = [
         row.created_at
           ? new Date(row.created_at).toLocaleString("es-EC", {
-              timeZone: "America/Guayaquil"
-            })
-          : "",
-        row.visible_at
-          ? new Date(row.visible_at).toLocaleString("es-EC", {
               timeZone: "America/Guayaquil"
             })
           : "",
