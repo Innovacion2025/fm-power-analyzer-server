@@ -1151,7 +1151,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
       const actualFrom = from || today;
       const actualTo = to || today;
   
-      let sql = `
+      const sql = `
         SELECT
           r.id,
           r.device_id,
@@ -1204,7 +1204,6 @@ app.get("/api/meters/:device_id", async (req, res) => {
           r.desbalance_v,
           r.desbalance_i,
   
-          r.raw_payload,
           r.created_at,
           r.created_at AS visible_at
         FROM power_readings r
@@ -1213,17 +1212,12 @@ app.get("/api/meters/:device_id", async (req, res) => {
          AND r.pm_slave = m.pm_slave
         WHERE r.device_id = $1
           AND r.pm_slave = $2
+          AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+        ORDER BY r.created_at ASC, r.id ASC
       `;
   
-      const values = [device_id, pmSlave];
-  
-      sql += `
-        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-      `;
-      values.push(actualFrom, actualTo);
-  
-      sql += ` ORDER BY r.created_at ASC, r.id ASC`;
+      const values = [device_id, pmSlave, actualFrom, actualTo];
   
       const result = await pool.query(sql, values);
   
@@ -1241,6 +1235,159 @@ app.get("/api/meters/:device_id", async (req, res) => {
       res.status(500).json({
         ok: false,
         error: "Error consultando histórico",
+        detail: error.message
+      });
+    }
+  });
+
+  // ============================================================
+  // BLOQUE 12B: API - HISTORICO INCREMENTAL POR RANGO
+  // ============================================================
+  app.get("/api/history/since", async (req, res) => {
+    try {
+      const { device_id, from, to, last_created_at } = req.query;
+      const pmSlave = Number(req.query.pm_slave);
+      const lastId = req.query.last_id ? Number(req.query.last_id) : null;
+  
+      if (!device_id) {
+        return res.status(400).json({ ok: false, error: "Falta device_id" });
+      }
+  
+      if (!Number.isInteger(pmSlave)) {
+        return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
+      }
+  
+      if (!from || !to) {
+        return res.status(400).json({ ok: false, error: "Faltan fechas from y to" });
+      }
+  
+      if (!last_created_at && !Number.isInteger(lastId)) {
+        return res.status(400).json({
+          ok: false,
+          error: "Falta last_created_at o last_id"
+        });
+      }
+  
+      const sqlBase = `
+        SELECT
+          r.id,
+          r.device_id,
+          m.device_name AS device_name,
+          r.pm_slave,
+          m.pm_name AS pm_name,
+  
+          r.timestamp_ms,
+  
+          r.voltage_a,
+          r.voltage_b,
+          r.voltage_c,
+  
+          r.current_a,
+          r.current_b,
+          r.current_c,
+          r.current_n,
+  
+          r.p_a,
+          r.p_b,
+          r.p_c,
+          r.p_tot,
+  
+          r.q_a,
+          r.q_b,
+          r.q_c,
+          r.q_tot,
+  
+          r.s_a,
+          r.s_b,
+          r.s_c,
+          r.s_tot,
+  
+          r.pf_a,
+          r.pf_b,
+          r.pf_c,
+          r.pf_tot,
+  
+          r.frecuencia,
+  
+          r.thd_va,
+          r.thd_vb,
+          r.thd_vc,
+  
+          r.thd_ia,
+          r.thd_ib,
+          r.thd_ic,
+          r.thd_in,
+  
+          r.desbalance_v,
+          r.desbalance_i,
+  
+          r.created_at,
+          r.created_at AS visible_at
+        FROM power_readings r
+        LEFT JOIN power_meters m
+          ON r.device_id = m.device_id
+         AND r.pm_slave = m.pm_slave
+        WHERE r.device_id = $1
+          AND r.pm_slave = $2
+          AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+          AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+      `;
+  
+      const values = [device_id, pmSlave, from, to];
+      let sql = sqlBase;
+  
+      if (last_created_at && Number.isInteger(lastId)) {
+        const lastCreatedAtDate = new Date(last_created_at);
+        if (isNaN(lastCreatedAtDate.getTime())) {
+          return res.status(400).json({
+            ok: false,
+            error: "last_created_at no es un timestamp ISO valido"
+          });
+        }
+  
+        sql += `
+          AND (
+            r.created_at > $5
+            OR (r.created_at = $5 AND r.id > $6)
+          )
+        `;
+        values.push(last_created_at, lastId);
+      } else if (last_created_at) {
+        const lastCreatedAtDate = new Date(last_created_at);
+        if (isNaN(lastCreatedAtDate.getTime())) {
+          return res.status(400).json({
+            ok: false,
+            error: "last_created_at no es un timestamp ISO valido"
+          });
+        }
+  
+        sql += ` AND r.created_at > $5 `;
+        values.push(last_created_at);
+      } else {
+        sql += ` AND r.id > $5 `;
+        values.push(lastId);
+      }
+  
+      sql += ` ORDER BY r.created_at ASC, r.id ASC LIMIT 1000`;
+  
+      const result = await pool.query(sql, values);
+  
+      return res.json({
+        ok: true,
+        device_id,
+        pm_slave: pmSlave,
+        from,
+        to,
+        last_created_at: last_created_at || null,
+        last_id: Number.isInteger(lastId) ? lastId : null,
+        total: result.rows.length,
+        data: result.rows
+      });
+    } catch (error) {
+      console.error("Error consultando histórico incremental (/api/history/since):", error);
+      res.status(500).json({
+        ok: false,
+        error: "Error consultando histórico incremental",
         detail: error.message
       });
     }
