@@ -1145,6 +1145,12 @@ app.get("/api/meters/:device_id", async (req, res) => {
         return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
       }
   
+      // Si no se especifica from/to, usar el día actual para evitar cargar todo el histórico
+      const now = new Date();
+      const today = now.toISOString().split('T')[0]; // YYYY-MM-DD
+      const actualFrom = from || today;
+      const actualTo = to || today;
+  
       let sql = `
         SELECT
           r.id,
@@ -1211,13 +1217,11 @@ app.get("/api/meters/:device_id", async (req, res) => {
   
       const values = [device_id, pmSlave];
   
-      if (from && to) {
-        sql += `
-          AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
-          AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
-        `;
-        values.push(from, to);
-      }
+      sql += `
+        AND r.created_at >= (($3::date)::timestamp AT TIME ZONE 'America/Guayaquil')
+        AND r.created_at < (((($4::date) + INTERVAL '1 day')::timestamp) AT TIME ZONE 'America/Guayaquil')
+      `;
+      values.push(actualFrom, actualTo);
   
       sql += ` ORDER BY r.created_at ASC, r.id ASC`;
   
@@ -1227,6 +1231,8 @@ app.get("/api/meters/:device_id", async (req, res) => {
         ok: true,
         device_id,
         pm_slave: pmSlave,
+        from: actualFrom,
+        to: actualTo,
         total: result.rows.length,
         data: result.rows
       });
@@ -1235,6 +1241,164 @@ app.get("/api/meters/:device_id", async (req, res) => {
       res.status(500).json({
         ok: false,
         error: "Error consultando histórico",
+        detail: error.message
+      });
+    }
+  });
+
+  // ============================================================
+  // BLOQUE 12C: API - HISTORICO INCREMENTAL PARA ACTUALIZACIONES EN TIEMPO REAL
+  // ============================================================
+  app.get("/api/history/incremental", async (req, res) => {
+    try {
+      const { device_id, since } = req.query;
+      const pmSlave = Number(req.query.pm_slave);
+  
+      if (!device_id) {
+        return res.status(400).json({ ok: false, error: "Falta device_id" });
+      }
+  
+      if (!Number.isInteger(pmSlave)) {
+        return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
+      }
+  
+      if (!since) {
+        return res.status(400).json({ ok: false, error: "Falta parametro since (timestamp ISO)" });
+      }
+  
+      // Validar que since sea un timestamp ISO valido
+      const sinceDate = new Date(since);
+      if (isNaN(sinceDate.getTime())) {
+        return res.status(400).json({ ok: false, error: "Parametro since debe ser timestamp ISO valido" });
+      }
+  
+      const sql = `
+        SELECT
+          r.id,
+          r.device_id,
+          m.device_name AS device_name,
+          r.pm_slave,
+          m.pm_name AS pm_name,
+  
+          r.timestamp_ms,
+  
+          r.voltage_a,
+          r.voltage_b,
+          r.voltage_c,
+  
+          r.current_a,
+          r.current_b,
+          r.current_c,
+          r.current_n,
+  
+          r.p_a,
+          r.p_b,
+          r.p_c,
+          r.p_tot,
+  
+          r.q_a,
+          r.q_b,
+          r.q_c,
+          r.q_tot,
+  
+          r.s_a,
+          r.s_b,
+          r.s_c,
+          r.s_tot,
+  
+          r.pf_a,
+          r.pf_b,
+          r.pf_c,
+          r.pf_tot,
+  
+          r.frecuencia,
+  
+          r.thd_va,
+          r.thd_vb,
+          r.thd_vc,
+  
+          r.thd_ia,
+          r.thd_ib,
+          r.thd_ic,
+          r.thd_in,
+  
+          r.desbalance_v,
+          r.desbalance_i,
+  
+          r.raw_payload,
+          r.created_at,
+          r.created_at AS visible_at
+        FROM power_readings r
+        LEFT JOIN power_meters m
+          ON r.device_id = m.device_id
+         AND r.pm_slave = m.pm_slave
+        WHERE r.device_id = $1
+          AND r.pm_slave = $2
+          AND r.created_at > $3
+        ORDER BY r.created_at ASC, r.id ASC
+        LIMIT 1000
+      `;
+  
+      const values = [device_id, pmSlave, since];
+  
+      const result = await pool.query(sql, values);
+  
+      res.json({
+        ok: true,
+        device_id,
+        pm_slave: pmSlave,
+        since,
+        total: result.rows.length,
+        data: result.rows
+      });
+    } catch (error) {
+      console.error("Error consultando histórico incremental:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Error consultando histórico incremental",
+        detail: error.message
+      });
+    }
+  });
+
+  // ============================================================
+  // BLOQUE 12D: API - OBTENER ULTIMO TIMESTAMP PARA INCREMENTAL
+  // ============================================================
+  app.get("/api/history/latest-timestamp", async (req, res) => {
+    try {
+      const { device_id } = req.query;
+      const pmSlave = Number(req.query.pm_slave);
+  
+      if (!device_id) {
+        return res.status(400).json({ ok: false, error: "Falta device_id" });
+      }
+  
+      if (!Number.isInteger(pmSlave)) {
+        return res.status(400).json({ ok: false, error: "Falta pm_slave valido" });
+      }
+  
+      const sql = `
+        SELECT MAX(created_at) as latest_timestamp
+        FROM power_readings
+        WHERE device_id = $1 AND pm_slave = $2
+      `;
+  
+      const values = [device_id, pmSlave];
+      const result = await pool.query(sql, values);
+  
+      const latest = result.rows[0]?.latest_timestamp || null;
+  
+      res.json({
+        ok: true,
+        device_id,
+        pm_slave: pmSlave,
+        latest_timestamp: latest
+      });
+    } catch (error) {
+      console.error("Error obteniendo último timestamp:", error);
+      res.status(500).json({
+        ok: false,
+        error: "Error obteniendo último timestamp",
         detail: error.message
       });
     }
@@ -1912,6 +2076,10 @@ app.get("/api/peak/history", async (req, res) => {
 // ============================================================
 // BLOQUE 13: ENDPOINTS DE NODE-RED
 // ============================================================
+app.get("/", (req, res) => {
+  res.sendFile(__dirname + "/index.html");
+});
+
 app.use("/", RED.httpNode);
 
 // ============================================================

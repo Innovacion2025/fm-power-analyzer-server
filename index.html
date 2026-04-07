@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FM Power Analyzer Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .chart-container { width: 100%; height: 400px; margin-bottom: 20px; }
+        .controls { margin-bottom: 20px; }
+        select, button { padding: 8px; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FM Power Analyzer Dashboard</h1>
+
+        <div class="controls">
+            <label>Device ID: <input type="text" id="deviceId" value="TU_DEVICE_ID_AQUI"></label>
+            <label>PM Slave: <input type="number" id="pmSlave" value="1"></label>
+            <button onclick="loadInitialData()">Cargar Datos Iniciales</button>
+            <button onclick="startRealTimeUpdates()">Iniciar Monitoreo en Tiempo Real</button>
+            <button onclick="stopRealTimeUpdates()">Detener Monitoreo</button>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="powerChart"></canvas>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let chart;
+        let lastTimestamp = null;
+        let updateInterval = null;
+        const updateFrequency = 5000; // 5 segundos
+
+        // Inicializar gráfico
+        function initChart() {
+            const ctx = document.getElementById('powerChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Potencia Total (kW)',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                unit: 'minute'
+                            }
+                        },
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // Cargar datos iniciales del día actual
+        async function loadInitialData() {
+            const deviceId = document.getElementById('deviceId').value;
+            const pmSlave = document.getElementById('pmSlave').value;
+
+            try {
+                const response = await fetch(`/api/history?device_id=${deviceId}&pm_slave=${pmSlave}`);
+                const data = await response.json();
+
+                if (data.ok) {
+                    // Convertir datos para Chart.js
+                    const chartData = data.data.map(row => ({
+                        x: new Date(row.created_at),
+                        y: row.p_tot
+                    }));
+
+                    chart.data.datasets[0].data = chartData;
+                    chart.update();
+
+                    // Guardar el último timestamp para actualizaciones incrementales
+                    if (data.data.length > 0) {
+                        lastTimestamp = data.data[data.data.length - 1].created_at;
+                    }
+
+                    document.getElementById('status').textContent = `Datos iniciales cargados: ${data.total} puntos`;
+                } else {
+                    document.getElementById('status').textContent = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                document.getElementById('status').textContent = `Error de red: ${error.message}`;
+            }
+        }
+
+        // Actualizar datos en tiempo real usando endpoint incremental
+        async function updateRealTimeData() {
+            if (!lastTimestamp) return;
+
+            const deviceId = document.getElementById('deviceId').value;
+            const pmSlave = document.getElementById('pmSlave').value;
+
+            try {
+                const response = await fetch(`/api/history/incremental?device_id=${deviceId}&pm_slave=${pmSlave}&since=${encodeURIComponent(lastTimestamp)}`);
+                const data = await response.json();
+
+                if (data.ok && data.data.length > 0) {
+                    // Agregar nuevos puntos al gráfico
+                    const newPoints = data.data.map(row => ({
+                        x: new Date(row.created_at),
+                        y: row.p_tot
+                    }));
+
+                    chart.data.datasets[0].data.push(...newPoints);
+                    chart.update();
+
+                    // Actualizar último timestamp
+                    lastTimestamp = data.data[data.data.length - 1].created_at;
+
+                    document.getElementById('status').textContent = `Actualizado: +${data.total} puntos nuevos`;
+                }
+            } catch (error) {
+                console.error('Error actualizando datos:', error);
+            }
+        }
+
+        // Iniciar actualizaciones en tiempo real
+        function startRealTimeUpdates() {
+            if (updateInterval) return;
+
+            updateInterval = setInterval(updateRealTimeData, updateFrequency);
+            document.getElementById('status').textContent = 'Monitoreo en tiempo real iniciado';
+        }
+
+        // Detener actualizaciones en tiempo real
+        function stopRealTimeUpdates() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+                updateInterval = null;
+                document.getElementById('status').textContent = 'Monitoreo detenido';
+            }
+        }
+
+        // Inicializar cuando se carga la página
+        window.onload = function() {
+            initChart();
+        };
+    </script>
+</body>
+</html>
