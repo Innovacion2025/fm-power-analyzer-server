@@ -166,6 +166,7 @@ async function crearTablasSiNoExisten() {
         pf_c NUMERIC(12,3),
         pf_tot NUMERIC(12,3),
         frecuencia NUMERIC(12,3),
+        active_energy NUMERIC(14,3),
         thd_va NUMERIC(12,3),
         thd_vb NUMERIC(12,3),
         thd_vc NUMERIC(12,3),
@@ -220,6 +221,7 @@ async function crearTablasSiNoExisten() {
         pf_c NUMERIC(12,3),
         pf_tot NUMERIC(12,3),
         frecuencia NUMERIC(12,3),
+        active_energy NUMERIC(14,3),
         thd_va NUMERIC(12,3),
         thd_vb NUMERIC(12,3),
         thd_vc NUMERIC(12,3),
@@ -236,6 +238,18 @@ async function crearTablasSiNoExisten() {
       );
     `);
     console.log("Tabla power_latest OK");
+
+    await pool.query(`
+      ALTER TABLE power_readings
+      ADD COLUMN IF NOT EXISTS active_energy NUMERIC(14,3);
+    `);
+    console.log("Columna active_energy en power_readings OK");
+
+    await pool.query(`
+      ALTER TABLE power_latest
+      ADD COLUMN IF NOT EXISTS active_energy NUMERIC(14,3);
+    `);
+    console.log("Columna active_energy en power_latest OK");
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_power_readings_device_slave_time
@@ -351,6 +365,7 @@ async function upsertLatest(data) {
       pf_tot,
 
       frecuencia,
+      active_energy,
 
       thd_va,
       thd_vb,
@@ -376,11 +391,11 @@ async function upsertLatest(data) {
       $24,$25,$26,$27,
       $28,$29,$30,$31,
       $32,$33,$34,$35,
-      $36,
-      $37,$38,$39,
-      $40,$41,$42,$43,
-      $44,$45,
-      $46,
+      $36,$37,
+      $38,$39,$40,
+      $41,$42,$43,$44,
+      $45,$46,
+      $47,
       NOW(),
       NOW()
     )
@@ -427,6 +442,7 @@ async function upsertLatest(data) {
       pf_tot = EXCLUDED.pf_tot,
 
       frecuencia = EXCLUDED.frecuencia,
+      active_energy = EXCLUDED.active_energy,
 
       thd_va = EXCLUDED.thd_va,
       thd_vb = EXCLUDED.thd_vb,
@@ -489,6 +505,7 @@ async function upsertLatest(data) {
     p.pf_tot ?? null,
 
     p.frecuencia ?? null,
+    p.active_energy ?? null,
 
     p.thd_va ?? null,
     p.thd_vb ?? null,
@@ -857,6 +874,7 @@ app.post("/api/save-reading", async (req, res) => {
         pf_tot,
 
         frecuencia,
+        active_energy,
 
         thd_va,
         thd_vb,
@@ -880,11 +898,11 @@ app.post("/api/save-reading", async (req, res) => {
         $24,$25,$26,$27,
         $28,$29,$30,$31,
         $32,$33,$34,$35,
-        $36,
-        $37,$38,$39,
-        $40,$41,$42,$43,
-        $44,$45,
-        $46
+        $36,$37,
+        $38,$39,$40,
+        $41,$42,$43,$44,
+        $45,$46,
+        $47
       )
       RETURNING id, created_at
     `;
@@ -933,6 +951,7 @@ app.post("/api/save-reading", async (req, res) => {
       p.pf_tot ?? null,
 
       p.frecuencia ?? null,
+      p.active_energy ?? null,
 
       p.thd_va ?? null,
       p.thd_vb ?? null,
@@ -972,6 +991,7 @@ app.post("/api/save-reading", async (req, res) => {
     });
   }
 });
+
 
 // ============================================================
 // BLOQUE 11: API - ULTIMA LECTURA DE UN PM EN TIEMPO REAL
@@ -1034,6 +1054,7 @@ app.get("/api/device/:device_id", async (req, res) => {
         l.pf_tot,
 
         l.frecuencia,
+        l.active_energy,
 
         l.thd_va,
         l.thd_vb,
@@ -1191,6 +1212,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
           r.pf_tot,
   
           r.frecuencia,
+          r.active_energy,
   
           r.thd_va,
           r.thd_vb,
@@ -1308,6 +1330,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
           r.pf_tot,
   
           r.frecuencia,
+          r.active_energy,
   
           r.thd_va,
           r.thd_vb,
@@ -1459,6 +1482,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
           r.pf_tot,
   
           r.frecuencia,
+          r.active_energy,
   
           r.thd_va,
           r.thd_vb,
@@ -1611,6 +1635,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
           r.pf_tot,
   
           r.frecuencia,
+          r.active_energy,
   
           r.thd_va,
           r.thd_vb,
@@ -1676,6 +1701,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
         "pf_c",
         "pf_tot",
         "frecuencia",
+        "active_energy",
         "thd_va",
         "thd_vb",
         "thd_vc",
@@ -1732,6 +1758,7 @@ app.get("/api/meters/:device_id", async (req, res) => {
           row.pf_tot ?? "",
   
           row.frecuencia ?? "",
+          row.active_energy ?? "",
   
           row.thd_va ?? "",
           row.thd_vb ?? "",
